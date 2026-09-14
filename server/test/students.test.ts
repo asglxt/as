@@ -69,7 +69,20 @@ test('student detail returns guardians and growth records', async () => {
     method: 'POST',
     url: '/api/students',
     headers: { authorization: `Bearer ${seed.adminToken}` },
-    payload: { campusId: seed.campusId, name: '王小明', gender: '男', birthday: '2018-01-02' }
+    payload: {
+      campusId: seed.campusId,
+      name: '王小明',
+      gender: '男',
+      birthday: '2018-01-02',
+      studentNo: 'SX2026001',
+      schoolName: '实验小学',
+      grade: '三年级',
+      address: '幸福路88号',
+      guardians: [
+        { name: '王爸爸', relation: '父亲', phone: '13800000001', wechat: 'wang_dad', isPrimary: true, isEmergency: true },
+        { name: '李妈妈', relation: '母亲', phone: '13800000002', wechat: 'li_mom', isEmergency: true }
+      ]
+    }
   });
   assert.equal(create.statusCode, 200);
   const detail = await app.inject({
@@ -79,7 +92,12 @@ test('student detail returns guardians and growth records', async () => {
   });
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json().student.gender, '男');
-  assert.deepEqual(detail.json().guardians, []);
+  assert.equal(detail.json().student.student_no, 'SX2026001');
+  assert.equal(detail.json().student.school_name, '实验小学');
+  assert.equal(detail.json().student.address, '幸福路88号');
+  assert.equal(detail.json().guardians.length, 2);
+  assert.equal(detail.json().guardians[0].wechat, 'wang_dad');
+  assert.equal(detail.json().guardians[0].is_emergency, true);
   assert.deepEqual(detail.json().growthRecords, []);
 });
 

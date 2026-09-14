@@ -27,6 +27,11 @@ interface StudentListResponse {
 
 const STATUS_LABELS: Record<string, string> = { active: '在读', inactive: '停课', graduated: '结课' };
 const STATUS_CLASSES: Record<string, string> = { active: 'green', inactive: 'orange', graduated: 'blue' };
+const EMPTY_FORM = {
+  name: '', studentNo: '', campusId: '', gender: '', birthday: '', schoolName: '', grade: '', address: '',
+  enrollmentDate: '', source: '', notes: '', fatherName: '', fatherPhone: '', fatherWechat: '',
+  motherName: '', motherPhone: '', motherWechat: '', guardianName: '', guardianRelation: '', guardianPhone: '', guardianWechat: ''
+};
 
 export default function StudentsPage() {
   const [data, setData] = useState<StudentListResponse>({ items: [], total: 0, page: 1, pageSize: 20, summary: { total: 0, active: 0, inactive: 0, graduated: 0 } });
@@ -35,7 +40,7 @@ export default function StudentsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState('');
   const [filters, setFilters] = useState({ keyword: '', status: 'active', campusId: '', gender: '', page: 1, pageSize: 20 });
-  const [form, setForm] = useState({ name: '', guardianPhone: '', campusId: '', gender: '', birthday: '', enrollmentDate: '', source: '', notes: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -88,12 +93,23 @@ export default function StudentsPage() {
   async function createStudent(e: FormEvent) {
     e.preventDefault();
     try {
+      const guardians = [
+        form.fatherName || form.fatherPhone ? { name: form.fatherName || '父亲', relation: '父亲', phone: form.fatherPhone, wechat: form.fatherWechat, isPrimary: true, isEmergency: true } : null,
+        form.motherName || form.motherPhone ? { name: form.motherName || '母亲', relation: '母亲', phone: form.motherPhone, wechat: form.motherWechat, isEmergency: true } : null,
+        form.guardianName || form.guardianPhone ? { name: form.guardianName || '其他监护人', relation: form.guardianRelation || '其他', phone: form.guardianPhone, wechat: form.guardianWechat } : null
+      ].filter(Boolean);
+      const { fatherName, fatherPhone, fatherWechat, motherName, motherPhone, motherWechat, guardianName, guardianRelation, guardianPhone, guardianWechat, ...student } = form;
       await api('/api/students', {
         method: 'POST',
-        body: JSON.stringify({ ...form, campusId: Number(form.campusId) })
+        body: JSON.stringify({
+          ...student,
+          campusId: Number(form.campusId),
+          guardianPhone: form.fatherPhone || form.motherPhone || form.guardianPhone,
+          guardians
+        })
       });
       setMessage('学员已创建');
-      setForm({ name: '', guardianPhone: '', campusId: '', gender: '', birthday: '', enrollmentDate: '', source: '', notes: '' });
+      setForm(EMPTY_FORM);
       setShowCreate(false);
       await load();
     } catch (err: any) {
@@ -133,12 +149,29 @@ export default function StudentsPage() {
           <div className="panel-header"><h2>新增学员</h2><button type="button" className="btn" onClick={() => setShowCreate(false)}>关闭</button></div>
           <div className="form-row">
             <label>学员姓名<input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-            <label>联系方式<input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></label>
+            <label>学员编号<input value={form.studentNo} onChange={(e) => setForm({ ...form, studentNo: e.target.value })} /></label>
             <label>校区<select required value={form.campusId} onChange={(e) => setForm({ ...form, campusId: e.target.value })}><option value="">选择校区</option>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
             <label>性别<select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}><option value="">未设置</option><option value="男">男</option><option value="女">女</option></select></label>
             <label>生日<input type="date" value={form.birthday} onChange={(e) => setForm({ ...form, birthday: e.target.value })} /></label>
             <label>报名日期<input type="date" value={form.enrollmentDate} onChange={(e) => setForm({ ...form, enrollmentDate: e.target.value })} /></label>
             <label>来源<input value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></label>
+          </div>
+          <div className="form-row">
+            <label>就读学校<input value={form.schoolName} onChange={(e) => setForm({ ...form, schoolName: e.target.value })} /></label>
+            <label>年级<input value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} /></label>
+            <label style={{ flex: 1 }}>家庭住址<input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
+          </div>
+          <div className="panel" style={{ background: '#f8fafc' }}>
+            <h2>父亲联系方式</h2>
+            <div className="form-row"><label>姓名<input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} /></label><label>电话<input value={form.fatherPhone} onChange={(e) => setForm({ ...form, fatherPhone: e.target.value })} /></label><label>微信<input value={form.fatherWechat} onChange={(e) => setForm({ ...form, fatherWechat: e.target.value })} /></label></div>
+          </div>
+          <div className="panel" style={{ background: '#f8fafc' }}>
+            <h2>母亲联系方式</h2>
+            <div className="form-row"><label>姓名<input value={form.motherName} onChange={(e) => setForm({ ...form, motherName: e.target.value })} /></label><label>电话<input value={form.motherPhone} onChange={(e) => setForm({ ...form, motherPhone: e.target.value })} /></label><label>微信<input value={form.motherWechat} onChange={(e) => setForm({ ...form, motherWechat: e.target.value })} /></label></div>
+          </div>
+          <div className="panel" style={{ background: '#f8fafc' }}>
+            <h2>其他监护人</h2>
+            <div className="form-row"><label>姓名<input value={form.guardianName} onChange={(e) => setForm({ ...form, guardianName: e.target.value })} /></label><label>关系<input value={form.guardianRelation} onChange={(e) => setForm({ ...form, guardianRelation: e.target.value })} /></label><label>电话<input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} /></label><label>微信<input value={form.guardianWechat} onChange={(e) => setForm({ ...form, guardianWechat: e.target.value })} /></label></div>
           </div>
           <div className="form-row"><label style={{ flex: 1 }}>备注<textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label></div>
           <button className="btn primary" type="submit">保存学员</button>

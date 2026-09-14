@@ -167,15 +167,28 @@ export async function studentRoutes(app: FastifyInstance) {
       discount?: string;
       source?: string;
       notes?: string;
-      guardians?: Array<{ name: string; relation?: string; phone?: string; isPrimary?: boolean }>;
+      studentNo?: string;
+      schoolName?: string;
+      grade?: string;
+      address?: string;
+      guardians?: Array<{
+        name: string;
+        relation?: string;
+        phone?: string;
+        wechat?: string;
+        isPrimary?: boolean;
+        isEmergency?: boolean;
+        remark?: string;
+      }>;
     };
     if (!body.campusId || !body.name?.trim()) {
       return reply.code(400).send({ error: 'campusId and name required' });
     }
     const result = await app.pool.query(
       `INSERT INTO students (
-        campus_id, name, guardian_phone, gender, birthday, enrollment_date, discount, source, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        campus_id, name, guardian_phone, gender, birthday, enrollment_date, discount, source, notes,
+        student_no, school_name, grade, address
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *`,
       [
         body.campusId,
@@ -186,16 +199,29 @@ export async function studentRoutes(app: FastifyInstance) {
         body.enrollmentDate || null,
         body.discount ?? null,
         body.source ?? null,
-        body.notes ?? null
+        body.notes ?? null,
+        body.studentNo?.trim() || null,
+        body.schoolName?.trim() || null,
+        body.grade?.trim() || null,
+        body.address?.trim() || null
       ]
     );
     const student = result.rows[0];
     for (const guardian of body.guardians ?? []) {
       if (!guardian.name?.trim()) continue;
       await app.pool.query(
-        `INSERT INTO student_guardians (student_id, name, relation, phone, is_primary)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [student.id, guardian.name.trim(), guardian.relation ?? null, guardian.phone ?? null, Boolean(guardian.isPrimary)]
+        `INSERT INTO student_guardians (student_id, name, relation, phone, wechat, is_primary, is_emergency, remark)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          student.id,
+          guardian.name.trim(),
+          guardian.relation ?? null,
+          guardian.phone ?? null,
+          guardian.wechat ?? null,
+          Boolean(guardian.isPrimary),
+          Boolean(guardian.isEmergency),
+          guardian.remark ?? null
+        ]
       );
     }
     return student;
@@ -235,6 +261,10 @@ export async function studentRoutes(app: FastifyInstance) {
       discount?: string;
       source?: string;
       notes?: string;
+      studentNo?: string;
+      schoolName?: string;
+      grade?: string;
+      address?: string;
     };
     if (body.status && !STUDENT_STATUSES.has(body.status)) return reply.code(400).send({ error: 'invalid status' });
     const result = await app.pool.query(
@@ -248,8 +278,12 @@ export async function studentRoutes(app: FastifyInstance) {
         enrollment_date = COALESCE($7::date, enrollment_date),
         discount = COALESCE($8, discount),
         source = COALESCE($9, source),
-        notes = COALESCE($10, notes)
-       WHERE id = $11
+        notes = COALESCE($10, notes),
+        student_no = COALESCE($11, student_no),
+        school_name = COALESCE($12, school_name),
+        grade = COALESCE($13, grade),
+        address = COALESCE($14, address)
+       WHERE id = $15
        RETURNING *`,
       [
         body.name ?? null,
@@ -262,6 +296,10 @@ export async function studentRoutes(app: FastifyInstance) {
         body.discount ?? null,
         body.source ?? null,
         body.notes ?? null,
+        body.studentNo?.trim() || null,
+        body.schoolName?.trim() || null,
+        body.grade?.trim() || null,
+        body.address?.trim() || null,
         id
       ]
     );
@@ -324,7 +362,7 @@ async function loadStudentDetail(app: FastifyInstance, studentId: number) {
   if (!student) return null;
 
   const guardians = (await app.pool.query(
-    `SELECT id, name, relation, phone, is_primary
+    `SELECT id, name, relation, phone, wechat, is_primary, is_emergency, remark
      FROM student_guardians
      WHERE student_id = $1
      ORDER BY is_primary DESC, id`,

@@ -71,14 +71,17 @@ export default function StudentDetailPage() {
           <section className="panel">
             <div className="panel-header"><h2>学员资料</h2></div>
             <div className="table-wrap"><table className="table"><tbody>
-              <tr><th>学员姓名</th><td>{student.name}</td><th>性别</th><td>{student.gender ?? '-'}</td></tr>
-              <tr><th>生日</th><td>{student.birthday?.slice(0, 10) ?? '-'}</td><th>报名日期</th><td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td></tr>
-              <tr><th>报读校区</th><td>{student.campus_name ?? '-'}</td><th>来源</th><td>{student.source ?? '-'}</td></tr>
-              <tr><th>折扣说明</th><td>{student.discount ?? '-'}</td><th>联系方式</th><td>{student.guardian_phone ?? '-'}</td></tr>
+              <tr><th>学员编号</th><td>{student.student_no ?? '-'}</td><th>学员姓名</th><td>{student.name}</td></tr>
+              <tr><th>性别</th><td>{student.gender ?? '-'}</td><th>生日</th><td>{student.birthday?.slice(0, 10) ?? '-'}</td></tr>
+              <tr><th>就读学校</th><td>{student.school_name ?? '-'}</td><th>年级</th><td>{student.grade ?? '-'}</td></tr>
+              <tr><th>报名日期</th><td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td><th>来源</th><td>{student.source ?? '-'}</td></tr>
+              <tr><th>报读校区</th><td>{student.campus_name ?? '-'}</td><th>折扣说明</th><td>{student.discount ?? '-'}</td></tr>
+              <tr><th>家庭住址</th><td colSpan={3}>{student.address ?? '-'}</td></tr>
+              <tr><th>主要联系方式</th><td colSpan={3}>{student.guardian_phone ?? '-'}</td></tr>
             </tbody></table></div>
           </section>
           <div className="workbench-side">
-            <section className="panel"><div className="panel-header"><h2>监护人</h2></div>{detail.guardians.length ? detail.guardians.map((item) => <div key={item.id} className="task-item"><span>{item.name} · {item.relation ?? '联系人'}</span><b>{item.phone ?? '-'}</b></div>) : <p className="subtitle">暂无监护人信息</p>}</section>
+            <section className="panel"><div className="panel-header"><h2>监护人</h2></div>{detail.guardians.length ? detail.guardians.map((item) => <div key={item.id} className="task-item"><div><b>{item.name}</b> <span className="badge blue">{item.relation ?? '联系人'}</span>{item.is_primary && <span className="badge green" style={{ marginLeft: 4 }}>主要联系人</span>}{item.is_emergency && <span className="badge orange" style={{ marginLeft: 4 }}>紧急联系人</span>}<div className="subtitle">电话：{item.phone ?? '-'}　微信：{item.wechat ?? '-'}</div></div></div>) : <p className="subtitle">暂无监护人信息</p>}</section>
             <section className="panel"><div className="panel-header"><h2>账户概览</h2></div><div className="cards" style={{ gridTemplateColumns: '1fr 1fr', margin: 0 }}><div className="stat-card"><b>{detail.account.balance}</b><span>账户余额</span></div><div className="stat-card"><b>{detail.account.points}</b><span>积分</span></div></div></section>
           </div>
         </div>
