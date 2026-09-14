@@ -58,6 +58,50 @@ export async function scheduleRoutes(app: FastifyInstance) {
     return result.rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const user = request.user!;
+    const query = request.query as {
+      start?: string; end?: string; campusId?: string; teacherId?: string;
+      classroomId?: string; classId?: string; lessonId?: string; recorded?: string;
+    };
+    const params: unknown[] = [query.start ?? null, query.end ?? null];
+    const where: string[] = [
+      '($1::date IS NULL OR s.schedule_date >= $1::date)',
+      '($2::date IS NULL OR s.schedule_date <= $2::date)',
+      "s.status = 'normal'"
+    ];
+    const teacherId = user.role === 'teacher' ? user.id : (query.teacherId ? Number(query.teacherId) : null);
+    if (teacherId) { params.push(teacherId); where.push(`s.teacher_id = $${params.length}`); }
+    if (query.campusId) { params.push(Number(query.campusId)); where.push(`s.campus_id = $${params.length}`); }
+    if (query.classroomId) { params.push(Number(query.classroomId)); where.push(`s.classroom_id = $${params.length}`); }
+    if (query.classId) { params.push(Number(query.classId)); where.push(`s.class_id = $${params.length}`); }
+    if (query.lessonId) { params.push(Number(query.lessonId)); where.push(`c.lesson_id = $${params.length}`); }
+    if (query.recorded === '1') where.push('s.is_recorded = true');
+    if (query.recorded === '0') where.push('s.is_recorded = false');
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE s.is_recorded)::int AS recorded,
+              COUNT(*) FILTER (WHERE NOT s.is_recorded)::int AS pending
+       FROM schedules s JOIN classes c ON c.id = s.class_id WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT s.*, c.name AS class_name, c.lesson_id, l.name AS lesson_name,
+              u.display_name AS teacher_name, r.name AS classroom_name, camp.name AS campus_name,
+              (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id AND cs.left_at IS NULL)::int AS student_count
+       FROM schedules s
+       JOIN classes c ON c.id = s.class_id
+       LEFT JOIN lessons l ON l.id = c.lesson_id
+       LEFT JOIN users u ON u.id = s.teacher_id
+       LEFT JOIN classrooms r ON r.id = s.classroom_id
+       JOIN campuses camp ON camp.id = s.campus_id
+       WHERE ${baseWhere}
+       ORDER BY s.schedule_date, s.start_time`,
+      params
+    )).rows.map((row) => ({ ...row, id: Number(row.id), class_id: Number(row.class_id), student_count: Number(row.student_count) }));
+    return { items, total: Number(summary.total), summary: { total: Number(summary.total), recorded: Number(summary.recorded), pending: Number(summary.pending) } };
+  });
+
   app.post('/', { preHandler: guard }, async (request, reply) => {
     const body = request.body as ScheduleInput;
     if (!body.classId || !body.campusId || !body.date || !body.startTime || !body.endTime) {

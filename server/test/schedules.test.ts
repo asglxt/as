@@ -94,3 +94,20 @@ test('adjacent times are allowed', async () => {
   });
   assert.equal(ok.statusCode, 200);
 });
+
+test('schedule list returns filters and summary statistics', async () => {
+  const created = await app.inject({
+    method: 'POST', url: '/api/schedules',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { classId, campusId: seed.campusId, date: '2026-09-18', startTime: '18:00', endTime: '19:30', teacherId, classroomId }
+  });
+  const res = await app.inject({
+    method: 'GET', url: `/api/schedules/list?start=2026-09-14&end=2026-09-20&teacherId=${teacherId}&campusId=${seed.campusId}`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].id, Number(created.json().id));
+  assert.equal(res.json().summary.total, 1);
+  assert.equal(res.json().summary.pending, 1);
+  assert.equal(res.json().summary.recorded, 0);
+});

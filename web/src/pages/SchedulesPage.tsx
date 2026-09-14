@@ -19,10 +19,13 @@ const VIEWS = [['time', '时间课表'], ['teacher', '教师课表'], ['classroo
 export default function SchedulesPage() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [view, setView] = useState<string>('time');
-  const [schedules, setSchedules] = useState<any[]>([]);
+  const [data, setData] = useState<any>({ items: [], total: 0, summary: { total: 0, recorded: 0, pending: 0 } });
   const [classes, setClasses] = useState<any[]>([]);
   const [classrooms, setClassrooms] = useState<any[]>([]);
   const [campuses, setCampuses] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [lessons, setLessons] = useState<any[]>([]);
+  const [filters, setFilters] = useState({ campusId: '', teacherId: '', classroomId: '', classId: '', lessonId: '', recorded: '' });
   const [form, setForm] = useState({ classId: '', campusId: '', date: '', startTime: '19:00', endTime: '20:30', teacherId: '', classroomId: '' });
   const [message, setMessage] = useState('');
 
@@ -37,7 +40,9 @@ export default function SchedulesPage() {
   async function load() {
     const start = fmt(days[0]);
     const end = fmt(days[6]);
-    setSchedules(await api<any[]>(`/api/schedules?start=${start}&end=${end}`));
+    const params = new URLSearchParams({ start, end });
+    for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
+    setData(await api<any>(`/api/schedules/list?${params.toString()}`));
   }
 
   useEffect(() => {
@@ -45,7 +50,10 @@ export default function SchedulesPage() {
     api<any[]>('/api/classes').then(setClasses).catch(() => {});
     api<any[]>('/api/classrooms').then(setClassrooms).catch(() => {});
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
-  }, [weekStart]);
+    api<any[]>('/api/lessons').then(setLessons).catch(() => {});
+    api<any[]>('/api/roles/staff').then(setStaff).catch(() => {});
+  }, []);
+  useEffect(() => { load().catch(() => {}); }, [weekStart, filters]);
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -86,6 +94,16 @@ export default function SchedulesPage() {
     <Shell>
       <h1 className="page-title">排课</h1>
       {message && <p className="subtitle">{message}</p>}
+      <div className="cards"><div className="stat-card"><b>{data.summary.total}</b><span>本周课程</span></div><div className="stat-card"><b>{data.summary.recorded}</b><span>已记上课</span></div><div className="stat-card"><b>{data.summary.pending}</b><span>待记上课</span></div></div>
+      <div className="panel">
+        <div className="form-row">
+          <label>校区<select value={filters.campusId} onChange={(e) => setFilters({ ...filters, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label>教师<select value={filters.teacherId} onChange={(e) => setFilters({ ...filters, teacherId: e.target.value })}><option value="">全部教师</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+          <label>教室<select value={filters.classroomId} onChange={(e) => setFilters({ ...filters, classroomId: e.target.value })}><option value="">全部教室</option>{classrooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+          <label>课程<select value={filters.lessonId} onChange={(e) => setFilters({ ...filters, lessonId: e.target.value })}><option value="">全部课程</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+          <label>记上课<select value={filters.recorded} onChange={(e) => setFilters({ ...filters, recorded: e.target.value })}><option value="">全部</option><option value="0">待记</option><option value="1">已记</option></select></label>
+        </div>
+      </div>
       <div className="form-row">
         <button className="btn" onClick={() => shiftWeek(-1)}>上一周</button>
         <button className="btn" onClick={() => setWeekStart(startOfWeek(new Date()))}>本周</button>
@@ -108,7 +126,7 @@ export default function SchedulesPage() {
         <label>日期<input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></label>
         <label>开始<input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></label>
         <label>结束<input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></label>
-        <label>教师 ID<input value={form.teacherId} onChange={(e) => setForm({ ...form, teacherId: e.target.value })} /></label>
+        <label>教师<select value={form.teacherId} onChange={(e) => setForm({ ...form, teacherId: e.target.value })}><option value="">待定</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
         <label>教室<select value={form.classroomId} onChange={(e) => setForm({ ...form, classroomId: e.target.value })}>
           <option value="">选择教室</option>
           {classrooms.map((r) => <option key={r.id} value={r.id}>{r.campus_name} · {r.name}</option>)}
@@ -119,12 +137,12 @@ export default function SchedulesPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
         {days.map((day, index) => {
           const dayKey = fmt(day);
-          const items = schedules.filter((s) => String(s.schedule_date).slice(0, 10) === dayKey);
+          const items = data.items.filter((s: any) => String(s.schedule_date).slice(0, 10) === dayKey);
           return (
             <div key={dayKey} className="panel" style={{ minHeight: 160 }}>
               <h2 style={{ fontSize: '0.85rem' }}>{DAY_LABELS[index]} {dayKey.slice(5)}</h2>
               {items.length === 0 && <p className="subtitle">无课</p>}
-              {items.map((item) => (
+              {items.map((item: any) => (
                 <div key={item.id} style={{ border: '1px solid #e3e5e8', borderRadius: 6, padding: 6, marginBottom: 6, fontSize: '0.72rem' }}>
                   <div><b>{String(item.start_time).slice(0, 5)}-{String(item.end_time).slice(0, 5)}</b></div>
                   <div>{cardText(item)}</div>
