@@ -12,11 +12,11 @@ export async function authRoutes(app: FastifyInstance) {
     }
     const result = await app.pool.query(
       'SELECT id, username, password_hash, display_name, role, campus_id, student_id FROM users WHERE username = $1',
-      [body.username]
+      [body.username.trim()]
     );
     const user = result.rows[0];
     if (!user || !(await verifyPassword(body.password, user.password_hash))) {
-      return reply.code(401).send({ error: 'invalid credentials' });
+      return reply.code(401).send({ error: '账号或密码不正确' });
     }
     const token = signToken(
       { userId: user.id, role: user.role, campusId: user.campus_id, studentId: user.student_id },

@@ -11,6 +11,13 @@ export default function MobileRoleLoginPage({ role }: { role: 'teacher' | 'paren
   const [error, setError] = useState('');
   const target = role === 'teacher' ? '/teacher/mobile' : '/parent/mobile';
   const title = role === 'teacher' ? '教师手机端' : '家长手机端';
+  const demoUsername = role === 'teacher' ? 'trial_gc_teacher_01' : 'trial_gc_parent';
+
+  function fillDemo() {
+    setUsername(demoUsername);
+    setPassword('demo123456');
+    setError('');
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -34,6 +41,7 @@ export default function MobileRoleLoginPage({ role }: { role: 'teacher' | 'paren
         <label>账号<input autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></label>
         <label>密码<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
         {error && <p className="error">{error}</p>}
+        <button className="role-demo-button" type="button" onClick={fillDemo}>一键填入试用账号</button>
         <button type="submit">登录{title}</button>
         <div className="role-login-links"><button type="button" onClick={() => navigate(role === 'teacher' ? '/parent/login' : '/teacher/login')}>切换至{role === 'teacher' ? '家长端' : '教师端'}</button><button type="button" onClick={() => navigate('/login')}>管理后台登录</button></div>
       </form>

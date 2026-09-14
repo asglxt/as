@@ -35,6 +35,16 @@ test('wrong password rejected', async () => {
   assert.equal(res.statusCode, 401);
 });
 
+test('login trims accidental username whitespace', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: '  admin  ', password: 'admin123' }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().user.username, 'admin');
+});
+
 test('invite creates parent and claim sets credentials', async () => {
   const login = await app.inject({
     method: 'POST',

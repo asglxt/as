@@ -51,6 +51,7 @@ button { color: inherit; }
 .role-login-card label { display: grid; gap: 6px; color: #59677d; font-size: 12px; }
 .role-login-card input { min-height: 44px; padding: 10px 12px; border: 1px solid #d6dfeb; border-radius: 7px; }
 .role-login-card > button[type='submit'] { min-height: 46px; border: 0; border-radius: 7px; background: #2563eb; color: #fff; font-weight: 700; }
+.role-demo-button { min-height: 40px; border: 1px solid #b9cdf3; border-radius: 7px; background: #f3f7ff; color: #2457c5; font-weight: 600; }
 .role-login-mark { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 10px; }
 .role-login-mark.teacher { background: #eaf1ff; color: #2457c5; }
 .role-login-mark.parent { background: #e7f6f3; color: #0f766e; }
