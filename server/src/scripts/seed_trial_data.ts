@@ -21,6 +21,8 @@ async function main() {
   const passwordHash = await hashPassword(teacherPassword);
   const subjectRows = (await pool.query('SELECT id, name FROM subjects')).rows;
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
+  const projectId = (await pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows[0]?.id ?? null;
+  const examId = (await pool.query('SELECT id FROM exams ORDER BY id LIMIT 1')).rows[0]?.id ?? null;
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0, parents: 0 };
@@ -178,6 +180,43 @@ async function main() {
       );
       for (const studentId of campusStudents) {
         await client.query('INSERT INTO parent_bindings (parent_user_id,student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [parent.rows[0].id, studentId]);
+      }
+      const firstClass = (await client.query(
+        "SELECT id,lesson_id,teacher_id FROM classes WHERE campus_id=$1 AND name ~ '^[A-Z]+-[0-9]{2}' ORDER BY name LIMIT 1",
+        [campus.campusId]
+      )).rows[0];
+      for (const [index, studentId] of campusStudents.entries()) {
+        await client.query(
+          'INSERT INTO student_accounts (student_id,balance,points) VALUES ($1,$2,$3) ON CONFLICT (student_id) DO UPDATE SET balance=EXCLUDED.balance,points=EXCLUDED.points,updated_at=now()',
+          [studentId, 500 + index * 200, 10 + index * 5]
+        );
+        await client.query(
+          `INSERT INTO orders (order_no,student_id,order_type,campus_id,operator_id,receivable,received,arrears,payment_status)
+           VALUES ($1,$2,'material',$3,$4,180,180,0,'paid') ON CONFLICT (order_no) DO NOTHING`,
+          [`TRIAL-${campus.campusCode}-${String(index + 1).padStart(3, '0')}`, studentId, campus.campusId, firstClass.teacher_id]
+        );
+        if (projectId && examId && firstClass) {
+          await client.query(
+            `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,exam_date,remark,created_by)
+             VALUES ($1,$2,$3,$4,$5,'teacher',CURRENT_DATE,$6,$7) ON CONFLICT DO NOTHING`,
+            [studentId, projectId, examId, firstClass.id, index === 0 ? '92' : '88', index === 0 ? '课堂表现积极' : '继续加油', firstClass.teacher_id]
+          );
+        }
+      }
+      if (firstClass) {
+        let homeworkId = (await client.query("SELECT id FROM homework WHERE class_id=$1 AND title='试用第一周作业' LIMIT 1", [firstClass.id])).rows[0]?.id;
+        if (!homeworkId) {
+          homeworkId = (await client.query(
+            `INSERT INTO homework (class_id,teacher_id,title,content,status,assigned_at,due_at)
+             VALUES ($1,$2,'试用第一周作业','完成练习册第 1-2 页，并朗读课文。','published',now(),now()+interval '7 day') RETURNING id`,
+            [firstClass.id, firstClass.teacher_id]
+          )).rows[0].id;
+        }
+        await client.query(
+          `INSERT INTO homework_records (homework_id,student_id)
+           SELECT $1,student_id FROM class_students WHERE class_id=$2 AND left_at IS NULL ON CONFLICT DO NOTHING`,
+          [homeworkId, firstClass.id]
+        );
       }
       summary.parents += 1;
     }
