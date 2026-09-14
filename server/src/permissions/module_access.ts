@@ -10,6 +10,57 @@ export const ALL_MODULES: ModuleKey[] = [
   'attendance', 'enrollments', 'classrooms', 'org', 'employees', 'roles'
 ];
 
+export const PERMISSION_GROUPS = [
+  {
+    key: 'workbench',
+    label: '工作台',
+    modules: [{ key: 'dashboard', label: '工作台' }]
+  },
+  {
+    key: 'operations',
+    label: '办理中心',
+    modules: [
+      { key: 'enrollments', label: '报读' },
+      { key: 'finance', label: '财务管理' }
+    ]
+  },
+  {
+    key: 'academic',
+    label: '教务中心',
+    modules: [
+      { key: 'students', label: '学员' },
+      { key: 'classes', label: '班级' },
+      { key: 'lessons', label: '课程' },
+      { key: 'classrooms', label: '教室' },
+      { key: 'schedules', label: '排课' },
+      { key: 'attendance', label: '记上课' }
+    ]
+  },
+  {
+    key: 'teaching',
+    label: '教学中心',
+    modules: [
+      { key: 'scores', label: '成绩' },
+      { key: 'comments', label: '课堂点评' },
+      { key: 'homework', label: '作业' }
+    ]
+  },
+  {
+    key: 'reports',
+    label: '报表中心',
+    modules: [{ key: 'report', label: '报表' }]
+  },
+  {
+    key: 'internal',
+    label: '内部管理',
+    modules: [
+      { key: 'org', label: '组织架构' },
+      { key: 'employees', label: '员工' },
+      { key: 'roles', label: '角色权限' }
+    ]
+  }
+] as const;
+
 const PRESET_BY_LEGACY: Record<string, string> = {
   teacher: '教师',
   admin: '机构主管'

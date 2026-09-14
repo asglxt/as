@@ -1,10 +1,97 @@
 import type { FastifyInstance } from 'fastify';
 import { authGuard } from '../auth/middleware.ts';
-import { getMyModules, requireModule } from '../permissions/module_access.ts';
+import { getMyModules, PERMISSION_GROUPS, requireModule } from '../permissions/module_access.ts';
 
 export async function roleRoutes(app: FastifyInstance) {
   app.get('/my-permissions', { preHandler: [authGuard] }, async (request) => {
     return getMyModules(app, request.user!.id, request.user!.role);
+  });
+
+  app.get('/permission-groups', { preHandler: [authGuard, requireModule('roles')] }, async () => {
+    return PERMISSION_GROUPS;
+  });
+
+  app.get('/staff', { preHandler: [authGuard, requireModule('roles')] }, async () => {
+    const rows = (await app.pool.query(
+      `SELECT u.id, u.username, u.display_name, u.role, u.campus_id,
+              u.employee_no, u.department, u.is_teacher, u.employment_status, u.contract_end_date,
+              camp.name AS campus_name,
+              COALESCE(
+                JSON_AGG(JSON_BUILD_OBJECT('id', r.id, 'name', r.name)
+                  ORDER BY r.id) FILTER (WHERE r.id IS NOT NULL),
+                '[]'
+              ) AS roles
+       FROM users u
+       LEFT JOIN campuses camp ON camp.id = u.campus_id
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+       WHERE u.role IN ('admin', 'teacher')
+       GROUP BY u.id, camp.name
+       ORDER BY u.id`
+    )).rows;
+    return rows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      campus_id: row.campus_id === null ? null : Number(row.campus_id),
+      roles: (typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles).map((role: any) => ({
+        id: Number(role.id),
+        name: role.name
+      }))
+    }));
+  });
+
+  app.patch('/staff/:id', { preHandler: [authGuard, requireModule('roles')] }, async (request, reply) => {
+    const userId = Number((request.params as { id: string }).id);
+    const body = request.body as {
+      displayName?: string;
+      employeeNo?: string;
+      department?: string;
+      campusId?: number;
+      isTeacher?: boolean;
+      employmentStatus?: string;
+      contractEndDate?: string;
+      roleIds?: number[];
+    };
+    const exists = await app.pool.query("SELECT 1 FROM users WHERE id = $1 AND role IN ('admin','teacher')", [userId]);
+    if (!exists.rowCount) return reply.code(404).send({ error: 'staff not found' });
+    const client = await app.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE users SET
+          display_name = COALESCE($1, display_name),
+          employee_no = COALESCE($2, employee_no),
+          department = COALESCE($3, department),
+          campus_id = COALESCE($4, campus_id),
+          is_teacher = COALESCE($5, is_teacher),
+          employment_status = COALESCE($6, employment_status),
+          contract_end_date = COALESCE($7::date, contract_end_date)
+         WHERE id = $8`,
+        [
+          body.displayName ?? null,
+          body.employeeNo ?? null,
+          body.department ?? null,
+          body.campusId ?? null,
+          body.isTeacher ?? null,
+          body.employmentStatus ?? null,
+          body.contractEndDate || null,
+          userId
+        ]
+      );
+      if (Array.isArray(body.roleIds)) {
+        await client.query('DELETE FROM user_roles WHERE user_id = $1', [userId]);
+        for (const roleId of body.roleIds) {
+          await client.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [userId, roleId]);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return { ok: true };
   });
 
   app.get('/', { preHandler: [authGuard, requireModule('roles')] }, async () => {
