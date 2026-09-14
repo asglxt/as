@@ -47,6 +47,43 @@ test('order list filters by student', async () => {
   assert.equal(Number(list.json()[0].receivable), 180);
 });
 
+test('order list returns paginated summary and financial totals', async () => {
+  const created = await app.inject({
+    method: 'POST', url: '/api/orders',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: {
+      studentId, orderType: 'enroll', campusId: seed.campusId, orderSource: '前台', tags: ['新生', '重点跟进'],
+      items: [{ itemType: 'course', lessonId, name: '订单课程', quantity: 10, unitPrice: 100 }]
+    }
+  });
+  const res = await app.inject({
+    method: 'GET', url: `/api/orders/list?keyword=${encodeURIComponent('订单学员')}&paymentStatus=unpaid&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].id, Number(created.json().id));
+  assert.deepEqual(res.json().items[0].tags, ['新生', '重点跟进']);
+  assert.equal(res.json().items[0].order_source, '前台');
+  assert.equal(res.json().summary.receivable, 1000);
+  assert.equal(res.json().summary.received, 0);
+});
+
+test('order can be cancelled with a reason', async () => {
+  const created = await app.inject({
+    method: 'POST', url: '/api/orders',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { studentId, orderType: 'material', campusId: seed.campusId, items: [{ itemType: 'material', name: '教材', quantity: 1, unitPrice: 80 }] }
+  });
+  const res = await app.inject({
+    method: 'PATCH', url: `/api/orders/${created.json().id}/status`,
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { status: 'cancelled', reason: '重复录入' }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().status, 'cancelled');
+  assert.equal(res.json().cancel_reason, '重复录入');
+});
+
 test('teacher without finance module is forbidden', async () => {
   const res = await app.inject({
     method: 'POST', url: '/api/orders',

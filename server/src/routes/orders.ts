@@ -37,10 +37,79 @@ export async function orderRoutes(app: FastifyInstance) {
     )).rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const query = request.query as {
+      keyword?: string; type?: string; orderType?: string; campusId?: string;
+      paymentStatus?: string; status?: string; start?: string; end?: string;
+      page?: string; pageSize?: string;
+    };
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+    const params: unknown[] = [];
+    const where: string[] = ['1 = 1'];
+    const orderType = query.orderType ?? query.type;
+    if (query.keyword?.trim()) {
+      params.push(`%${query.keyword.trim()}%`);
+      where.push(`(o.order_no ILIKE $${params.length} OR s.name ILIKE $${params.length} OR COALESCE(s.guardian_phone, '') ILIKE $${params.length})`);
+    }
+    if (orderType) { params.push(orderType); where.push(`o.order_type = $${params.length}`); }
+    if (query.campusId) { params.push(Number(query.campusId)); where.push(`o.campus_id = $${params.length}`); }
+    if (query.paymentStatus) { params.push(query.paymentStatus); where.push(`o.payment_status = $${params.length}`); }
+    if (query.status) { params.push(query.status); where.push(`o.status = $${params.length}`); }
+    if (query.start) { params.push(query.start); where.push(`o.created_at::date >= $${params.length}::date`); }
+    if (query.end) { params.push(query.end); where.push(`o.created_at::date <= $${params.length}::date`); }
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total, COALESCE(SUM(o.receivable),0) AS receivable,
+              COALESCE(SUM(o.received),0) AS received, COALESCE(SUM(o.account_change),0) AS account_change,
+              COALESCE(SUM(o.arrears),0) AS arrears, COALESCE(SUM(o.points),0) AS points
+       FROM orders o JOIN students s ON s.id = o.student_id
+       WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT o.*, s.name AS student_name, s.guardian_phone AS student_phone,
+              u.display_name AS operator_name, c.name AS campus_name
+       FROM orders o
+       JOIN students s ON s.id = o.student_id
+       LEFT JOIN users u ON u.id = o.operator_id
+       LEFT JOIN campuses c ON c.id = o.campus_id
+       WHERE ${baseWhere}
+       ORDER BY o.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]
+    )).rows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      student_id: Number(row.student_id),
+      campus_id: row.campus_id === null ? null : Number(row.campus_id),
+      receivable: Number(row.receivable),
+      received: Number(row.received),
+      account_change: Number(row.account_change),
+      arrears: Number(row.arrears),
+      points: Number(row.points),
+      tags: row.tags ?? []
+    }));
+    return {
+      items,
+      total: Number(summary.total),
+      page,
+      pageSize,
+      summary: {
+        receivable: Number(summary.receivable),
+        received: Number(summary.received),
+        accountChange: Number(summary.account_change),
+        arrears: Number(summary.arrears),
+        points: Number(summary.points)
+      }
+    };
+  });
+
   app.post('/', { preHandler: guard }, async (request, reply) => {
     const body = request.body as {
       studentId?: number; orderType?: string; campusId?: number;
       items?: OrderItemInput[]; internalNote?: string; externalNote?: string;
+      tags?: string[]; orderSource?: string;
     };
     if (!body.studentId || !body.orderType || !Array.isArray(body.items) || body.items.length === 0) {
       return reply.code(400).send({ error: 'studentId, orderType and items required' });
@@ -53,10 +122,10 @@ export async function orderRoutes(app: FastifyInstance) {
       await client.query('BEGIN');
       const order = await client.query(
         `INSERT INTO orders (order_no, student_id, order_type, campus_id, operator_id,
-           receivable, received, account_change, arrears, payment_status, internal_note, external_note)
-         VALUES ($1,$2,$3,$4,$5,$6,0,0,$6,'unpaid',$7,$8) RETURNING *`,
+           receivable, received, account_change, arrears, payment_status, internal_note, external_note, tags, order_source)
+         VALUES ($1,$2,$3,$4,$5,$6,0,0,$6,'unpaid',$7,$8,$9,$10) RETURNING *`,
         [orderNo, body.studentId, body.orderType, body.campusId ?? null, request.user!.id,
-         receivable, body.internalNote ?? null, body.externalNote ?? null]
+         receivable, body.internalNote ?? null, body.externalNote ?? null, body.tags ?? [], body.orderSource ?? 'manual']
       );
       for (const item of items) {
         await client.query(
@@ -247,6 +316,30 @@ export async function orderRoutes(app: FastifyInstance) {
     await writeAudit(app, request.user!.id, 'refund_create', 'refund', refundId, { enrollmentId: enrollment.id, actualAmount: body.actualAmount });
     return (await app.pool.query('SELECT * FROM refunds WHERE id = $1', [refundId])).rows[0];
   });
+  app.patch('/:id/status', { preHandler: guard }, async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    const body = request.body as { status?: string; reason?: string };
+    if (!body.status || !['draft', 'confirmed', 'cancelled'].includes(body.status)) {
+      return reply.code(400).send({ error: 'valid status required' });
+    }
+    const order = (await app.pool.query('SELECT * FROM orders WHERE id = $1', [id])).rows[0];
+    if (!order) return reply.code(404).send({ error: 'order not found' });
+    if (body.status === 'cancelled' && Number(order.received) > 0) {
+      return reply.code(409).send({ error: '已收款订单不能直接作废，请先处理退款' });
+    }
+    if (body.status === 'cancelled' && !body.reason?.trim()) {
+      return reply.code(400).send({ error: 'cancel reason required' });
+    }
+    const result = await app.pool.query(
+      `UPDATE orders SET status = $1, cancelled_at = CASE WHEN $1 = 'cancelled' THEN now() ELSE cancelled_at END,
+        cancel_reason = CASE WHEN $1 = 'cancelled' THEN $2 ELSE cancel_reason END
+       WHERE id = $3 RETURNING *`,
+      [body.status, body.reason?.trim() || null, id]
+    );
+    await writeAudit(app, request.user!.id, 'order_status', 'order', id, { status: body.status, reason: body.reason ?? null });
+    return result.rows[0];
+  });
+
   app.get('/:id', { preHandler: guard }, async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     if (!Number.isFinite(id)) return reply.code(400).send({ error: 'invalid order id' });
