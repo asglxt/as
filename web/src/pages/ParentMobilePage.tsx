@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart3, BookOpenCheck, ChevronRight, CircleUserRound, ClipboardCheck, CreditCard,
   GraduationCap, Home, LogOut, MessageSquare, Star, Wallet
@@ -10,6 +11,7 @@ type ParentTab = 'home' | 'scores' | 'comments' | 'homework' | 'account';
 
 export default function ParentMobilePage() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<ParentTab>('home');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [overview, setOverview] = useState<any>(null);
@@ -24,7 +26,7 @@ export default function ParentMobilePage() {
   useEffect(() => { if (user?.role === 'parent') loadOverview().catch((err) => setMessage(err.message)); }, [user]);
 
   if (!user || user.role !== 'parent') {
-    return <div className="tm-gate"><GraduationCap size={32} /><h1>家长端</h1><p>请使用家长账号登录。</p></div>;
+    return <div className="tm-gate"><GraduationCap size={32} /><h1>家长手机端</h1><p>请使用家长账号登录。</p><button className="tm-primary-action" onClick={() => { if (user) logout(); navigate('/parent/login'); }}>家长端登录</button></div>;
   }
   if (!overview) return <div className="tm-gate">{message || '正在加载...'}</div>;
 

@@ -37,6 +37,25 @@ button { color: inherit; }
 .login-card input { padding: 11px 12px; border: 1px solid #d7deea; border-radius: 6px; background: #fff; }
 .login-card input:focus { outline: 2px solid rgba(37, 99, 235, 0.14); border-color: #2563eb; }
 .login-card button { padding: 11px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; font-weight: 600; }
+.login-role-entries { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; padding-top: 4px; border-top: 1px solid #edf1f6; }
+.login-role-entries a { min-height: 74px; padding: 11px; border: 1px solid #dfe6f0; border-radius: 8px; color: #33425b; text-decoration: none; display: flex; align-items: center; gap: 9px; }
+.login-role-entries a:hover { border-color: #92afe8; background: #f7faff; }
+.login-role-entries a > svg { color: #2563eb; flex: none; }
+.login-role-entries b, .login-role-entries small { display: block; }
+.login-role-entries b { font-size: 12px; }
+.login-role-entries small { margin-top: 4px; color: #8490a3; font-size: 9px; line-height: 1.4; }
+.role-login-wrap { min-height: 100vh; padding: 24px; background: #eef3f9; display: grid; place-items: center; }
+.role-login-card { width: min(390px,100%); padding: 28px; border: 1px solid #dfe6f0; border-radius: 10px; background: #fff; box-shadow: 0 18px 48px rgba(31,47,78,.11); display: grid; gap: 14px; }
+.role-login-card > span { color: #7b879a; font-size: 11px; }
+.role-login-card h1 { margin: -3px 0 3px; font-size: 22px; }
+.role-login-card label { display: grid; gap: 6px; color: #59677d; font-size: 12px; }
+.role-login-card input { min-height: 44px; padding: 10px 12px; border: 1px solid #d6dfeb; border-radius: 7px; }
+.role-login-card > button[type='submit'] { min-height: 46px; border: 0; border-radius: 7px; background: #2563eb; color: #fff; font-weight: 700; }
+.role-login-mark { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 10px; }
+.role-login-mark.teacher { background: #eaf1ff; color: #2457c5; }
+.role-login-mark.parent { background: #e7f6f3; color: #0f766e; }
+.role-login-links { display: flex; justify-content: space-between; gap: 8px; }
+.role-login-links button { border: 0; background: transparent; color: #68758a; font-size: 11px; padding: 5px 0; }
 .error { color: #dc2626; font-size: 13px; margin: 0; }
 
 .app-shell { display: flex; min-height: 100vh; }
@@ -137,6 +156,7 @@ button { color: inherit; }
 .tm-main { padding: 14px; }
 .tm-loading, .tm-gate { min-height: 70vh; display: grid; place-items: center; align-content: center; gap: 10px; color: #718096; text-align: center; padding: 24px; }
 .tm-gate h1, .tm-gate p { margin: 0; }
+.tm-gate .tm-primary-action { width: auto; min-width: 190px; padding: 0 22px; }
 .tm-hero { min-height: 152px; padding: 20px; border-radius: 10px; background: #173f8a; color: #fff; display: flex; align-items: flex-start; justify-content: space-between; overflow: hidden; }
 .tm-hero span { font-size: 12px; color: #c8d8ff; }
 .tm-hero h1 { margin: 8px 0 6px; font-size: 22px; line-height: 1.25; }

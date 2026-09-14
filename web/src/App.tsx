@@ -29,6 +29,7 @@ import NotificationsPage from './pages/NotificationsPage.tsx';
 import MaterialsPage from './pages/MaterialsPage.tsx';
 import TeacherMobilePage from './pages/TeacherMobilePage.tsx';
 import ParentMobilePage from './pages/ParentMobilePage.tsx';
+import MobileRoleLoginPage from './pages/MobileRoleLoginPage.tsx';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -41,6 +42,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/teacher/login" element={<MobileRoleLoginPage role="teacher" />} />
+      <Route path="/parent/login" element={<MobileRoleLoginPage role="parent" />} />
       <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/students" element={<RequireAuth><StudentsPage /></RequireAuth>} />
       <Route path="/students/:id" element={<RequireAuth><StudentDetailPage /></RequireAuth>} />

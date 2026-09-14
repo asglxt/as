@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart3, BookOpenCheck, CalendarDays, CheckCircle2, ChevronRight, ClipboardCheck,
   Clock, GraduationCap, Home, LogOut, MapPin, Minus, PenLine, Plus, Save, Send, Timer, Users
@@ -11,9 +12,10 @@ const STUDENT_STATUS = [['present', '到课'], ['absent', '缺课'], ['leave', '
 
 export default function TeacherMobilePage() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<MobileTab>('home');
   if (!user || user.role !== 'teacher') {
-    return <div className="tm-gate"><GraduationCap size={32} /><h1>教师端</h1><p>请使用教师账号登录。</p></div>;
+    return <div className="tm-gate"><GraduationCap size={32} /><h1>教师手机端</h1><p>请使用教师账号登录。</p><button className="tm-primary-action" onClick={() => { if (user) logout(); navigate('/teacher/login'); }}>教师端登录</button></div>;
   }
   return (
     <div className="teacher-mobile">
