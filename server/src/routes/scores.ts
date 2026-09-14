@@ -72,6 +72,38 @@ export async function scoreRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get('/roster', { preHandler: read }, async (request, reply) => {
+    const query = request.query as { classIds?: string; includeInactive?: string };
+    const classIds = String(query.classIds ?? '')
+      .split(',')
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (!classIds.length) return reply.code(400).send({ error: 'classIds required' });
+    const includeInactive = query.includeInactive === '1' || query.includeInactive === 'true';
+    const classes = (await app.pool.query(
+      `SELECT id, name
+       FROM classes
+       WHERE id = ANY($1::bigint[])
+       ORDER BY id`,
+      [classIds]
+    )).rows;
+    const result = [];
+    for (const cls of classes) {
+      const students = (await app.pool.query(
+        `SELECT s.id AS student_id, s.name, s.guardian_phone AS phone, s.status
+         FROM class_students cs
+         JOIN students s ON s.id = cs.student_id
+         WHERE cs.class_id = $1
+           AND cs.left_at IS NULL
+           AND ($2::boolean OR s.status = 'active')
+         ORDER BY s.name, s.id`,
+        [cls.id, includeInactive]
+      )).rows.map((row) => ({ ...row, student_id: Number(row.student_id) }));
+      result.push({ classId: Number(cls.id), className: cls.name, students });
+    }
+    return result;
+  });
+
   app.get('/export', { preHandler: read }, async (request, reply) => {
     const query = request.query as { classId?: string; projectId?: string; examId?: string; start?: string; end?: string };
     const rows = (await app.pool.query(

@@ -100,3 +100,20 @@ test('score export returns csv', async () => {
   assert.equal(res.statusCode, 200);
   assert.match(res.body, /student_name/);
 });
+
+test('score roster supports multiple classes', async () => {
+  const teacherId = (await app.pool.query("SELECT id FROM users WHERE username = 'teacher'")).rows[0].id;
+  const cls = await app.pool.query(
+    "INSERT INTO classes (campus_id, name, subject, grade, teacher_id) VALUES ($1,'成绩班','英语','一年级',$2) RETURNING id",
+    [seed.campusId, teacherId]
+  );
+  const student = await app.pool.query("INSERT INTO students (campus_id, name, guardian_phone) VALUES ($1,'成绩学员','13800000000') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id, student_id) VALUES ($1, $2)', [cls.rows[0].id, student.rows[0].id]);
+  const res = await app.inject({
+    method: 'GET', url: `/api/scores/roster?classIds=${cls.rows[0].id}`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json()[0].classId, Number(cls.rows[0].id));
+  assert.equal(res.json()[0].students[0].name, '成绩学员');
+});
