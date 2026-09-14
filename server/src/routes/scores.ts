@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authGuard, requireRole } from '../auth/middleware.ts';
 import { requireModule } from '../permissions/module_access.ts';
+import { summarizeStudentScores } from '../scores/analytics.ts';
 
 export async function scoreRoutes(app: FastifyInstance) {
   const read = [authGuard, requireModule('scores')];
@@ -11,6 +12,89 @@ export async function scoreRoutes(app: FastifyInstance) {
     const row = await app.pool.query('SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2', [classId, request.user!.id]);
     return Boolean(row.rowCount);
   }
+
+  async function canViewStudentAnalytics(request: any, studentId: number) {
+    const user = request.user!;
+    if (user.role === 'admin') return true;
+    if (user.role === 'teacher') {
+      const row = await app.pool.query(
+        `SELECT 1 FROM class_students cs JOIN classes c ON c.id=cs.class_id
+         WHERE cs.student_id=$1 AND c.teacher_id=$2 AND cs.left_at IS NULL LIMIT 1`,
+        [studentId, user.id]
+      );
+      return Boolean(row.rowCount);
+    }
+    if (user.role === 'parent') {
+      const row = await app.pool.query('SELECT 1 FROM parent_bindings WHERE parent_user_id=$1 AND student_id=$2', [user.id, studentId]);
+      return Boolean(row.rowCount);
+    }
+    return user.role === 'student' && Number(user.studentId) === Number(studentId);
+  }
+
+  app.get('/analytics/student/:studentId', { preHandler: [authGuard] }, async (request, reply) => {
+    const studentId = Number((request.params as { studentId: string }).studentId);
+    if (!(await canViewStudentAnalytics(request, studentId))) return reply.code(403).send({ error: 'forbidden' });
+    const student = (await app.pool.query('SELECT id,name,gender,status FROM students WHERE id=$1', [studentId])).rows[0];
+    if (!student) return reply.code(404).send({ error: 'student not found' });
+    const classRow = (await app.pool.query(
+      `SELECT c.id,c.name,c.grade FROM class_students cs JOIN classes c ON c.id=cs.class_id
+       WHERE cs.student_id=$1 AND cs.left_at IS NULL ORDER BY cs.joined_at DESC LIMIT 1`,
+      [studentId]
+    )).rows[0];
+    const params: unknown[] = [];
+    const where = ["ss.score ~ '^-?[0-9]+(\\.[0-9]+)?$'"];
+    if (classRow?.grade) { params.push(classRow.grade); where.push(`c.grade = $${params.length}`); }
+    else { params.push(studentId); where.push(`ss.student_id = $${params.length}`); }
+    const rows = (await app.pool.query(
+      `SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date,ss.score,ss.remark,ss.source,
+              p.name AS project_name,e.name AS exam_name,c.id AS class_id,c.name AS class_name,c.grade
+       FROM student_scores ss
+       JOIN exam_projects p ON p.id=ss.project_id
+       JOIN exams e ON e.id=ss.exam_id
+       LEFT JOIN classes c ON c.id=ss.class_id
+       WHERE ${where.join(' AND ')}`,
+      params
+    )).rows;
+    return {
+      student: { ...student, id: Number(student.id), class_id: classRow?.id ? Number(classRow.id) : null, class_name: classRow?.name ?? null, grade: classRow?.grade ?? null },
+      ...summarizeStudentScores(rows, studentId)
+    };
+  });
+
+  app.get('/analytics/alerts', { preHandler: [authGuard] }, async (request, reply) => {
+    const user = request.user!;
+    if (!['admin', 'teacher'].includes(user.role)) return reply.code(403).send({ error: 'forbidden' });
+    const teacherId = user.role === 'teacher' ? user.id : null;
+    const rows = (await app.pool.query(
+      `WITH numeric AS (
+         SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date,ss.score::numeric AS score,
+                c.id AS class_id,c.name AS class_name,c.grade,p.name AS project_name,e.name AS exam_name,st.name AS student_name
+         FROM student_scores ss
+         JOIN students st ON st.id=ss.student_id
+         JOIN classes c ON c.id=ss.class_id
+         JOIN exam_projects p ON p.id=ss.project_id
+         JOIN exams e ON e.id=ss.exam_id
+         WHERE ss.score ~ '^-?[0-9]+(\\.[0-9]+)?$' AND ($1::bigint IS NULL OR c.teacher_id=$1)
+       ), ranked AS (
+         SELECT numeric.*,
+           ROW_NUMBER() OVER (PARTITION BY student_id ORDER BY exam_date DESC,id DESC) AS rn,
+           LAG(score) OVER (PARTITION BY student_id ORDER BY exam_date,id) AS previous_score,
+           AVG(score) OVER (PARTITION BY project_id,exam_id,exam_date,class_id) AS class_average
+         FROM numeric
+       )
+       SELECT *, score-previous_score AS change FROM ranked
+       WHERE rn=1 AND previous_score IS NOT NULL AND (score-previous_score <= -5 OR score < class_average-5)
+       ORDER BY (score-previous_score) ASC, score ASC LIMIT 100`,
+      [teacherId]
+    )).rows.map((row) => ({
+      ...row,
+      student_id: Number(row.student_id), class_id: Number(row.class_id), score: Number(row.score),
+      previous_score: Number(row.previous_score), change: Number(row.change), class_average: Number(row.class_average),
+      level: Number(row.change) <= -10 ? 'danger' : 'warning',
+      title: Number(row.change) <= -5 ? '成绩下滑预警' : '低于班级平均分'
+    }));
+    return rows;
+  });
 
   app.get('/projects', { preHandler: read }, async () => {
     return (await app.pool.query('SELECT * FROM exam_projects ORDER BY sort, id')).rows;

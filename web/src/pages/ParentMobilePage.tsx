@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
+import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
 
 type ParentTab = 'home' | 'scores' | 'comments' | 'homework' | 'account';
 
@@ -76,7 +77,7 @@ function ParentScores({ studentId }: { studentId: number }) {
   const [report, setReport] = useState<any>(null);
   useEffect(() => { api<any>(`/api/parent-mobile/scores?studentId=${studentId}`).then(setReport).catch(() => {}); }, [studentId]);
   if (!report) return <div className="tm-loading">正在加载成绩...</div>;
-  return <section className="tm-page"><div className="tm-page-title"><h1>成绩报告</h1><p>{report.student.name}的成绩记录</p></div><div className="pm-score-list">{report.scores.map((item: any) => <div className="pm-score-card" key={item.id}><div><span>{item.project_name} · {item.exam_name}</span><h3>{item.class_name ?? '未关联班级'}</h3><small>{String(item.exam_date).slice(0, 10)} · {item.source}</small></div><strong>{item.score ?? '-'}</strong>{item.remark && <p>{item.remark}</p>}</div>)}{report.scores.length === 0 && <div className="tm-empty">暂无成绩记录</div>}</div></section>;
+  return <section className="tm-page"><div className="tm-page-title"><h1>成绩报告</h1><p>{report.student.name}的成绩记录</p></div><ScoreAnalyticsPanel studentId={studentId} /><div className="pm-score-list">{report.scores.map((item: any) => <div className="pm-score-card" key={item.id}><div><span>{item.project_name} · {item.exam_name}</span><h3>{item.class_name ?? '未关联班级'}</h3><small>{String(item.exam_date).slice(0, 10)} · {item.source}</small></div><strong>{item.score ?? '-'}</strong>{item.remark && <p>{item.remark}</p>}</div>)}{report.scores.length === 0 && <div className="tm-empty">暂无成绩记录</div>}</div></section>;
 }
 
 function ParentComments({ studentId, onChanged }: { studentId: number; onChanged: () => void }) {

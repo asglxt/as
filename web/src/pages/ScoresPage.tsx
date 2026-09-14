@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Download, Plus, Search, Save } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api, getToken } from '../api.ts';
+import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
 
-const TABS = [['entry', '成绩管理'], ['query', '成绩查询'], ['projects', '项目设置'], ['exams', '考试设置']] as const;
+const TABS = [['entry', '成绩管理'], ['analytics', '成绩分析'], ['query', '成绩查询'], ['projects', '项目设置'], ['exams', '考试设置']] as const;
 const SOURCES = [['teacher', '机构内'], ['registration', '报名成绩'], ['import', '导入']] as const;
 
 interface RosterGroup {
@@ -25,6 +26,8 @@ export default function ScoresPage() {
   const [total, setTotal] = useState(0);
   const [dictName, setDictName] = useState('');
   const [message, setMessage] = useState('');
+  const [students, setStudents] = useState<any[]>([]);
+  const [analyticsStudentId, setAnalyticsStudentId] = useState('');
 
   async function loadDicts() {
     const [projectList, examList] = await Promise.all([api<any[]>('/api/scores/projects'), api<any[]>('/api/scores/exams')]);
@@ -34,6 +37,7 @@ export default function ScoresPage() {
 
   useEffect(() => {
     api<any[]>('/api/classes').then(setClasses).catch(() => {});
+    api<any[]>('/api/students').then(setStudents).catch(() => {});
     loadDicts().catch(() => {});
   }, []);
 
@@ -159,6 +163,13 @@ export default function ScoresPage() {
           </form>
           <div className="summary-strip"><span>当前结果 <b>{total}</b> 条</span></div>
           <div className="table-wrap"><table className="table"><thead><tr><th>学员</th><th>项目</th><th>考试</th><th>班级</th><th>成绩</th><th>考试日期</th><th>来源</th><th>备注</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.student_name}</td><td>{row.project_name}</td><td>{row.exam_name}</td><td>{row.class_name ?? '-'}</td><td><b>{row.score ?? '未考'}</b></td><td>{String(row.exam_date).slice(0, 10)}</td><td>{row.source}</td><td>{row.remark ?? '-'}</td></tr>)}</tbody></table></div>
+        </div>
+      )}
+
+      {tab === 'analytics' && (
+        <div className="panel">
+          <div className="panel-header"><h2>学员成绩分析</h2><select className="btn" value={analyticsStudentId} onChange={(e) => setAnalyticsStudentId(e.target.value)}><option value="">选择学员</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></div>
+          {analyticsStudentId ? <ScoreAnalyticsPanel studentId={Number(analyticsStudentId)} /> : <p className="subtitle">选择学员后查看成长趋势、班级排名和同年级机构排名。</p>}
         </div>
       )}
 

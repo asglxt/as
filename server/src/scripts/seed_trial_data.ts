@@ -21,8 +21,8 @@ async function main() {
   const passwordHash = await hashPassword(teacherPassword);
   const subjectRows = (await pool.query('SELECT id, name FROM subjects')).rows;
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
-  const projectId = (await pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows[0]?.id ?? null;
-  const examId = (await pool.query('SELECT id FROM exams ORDER BY id LIMIT 1')).rows[0]?.id ?? null;
+  const projectIds = (await pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows.map((row) => Number(row.id));
+  const examIds = (await pool.query('SELECT id FROM exams ORDER BY id LIMIT 3')).rows.map((row) => Number(row.id));
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0, parents: 0 };
@@ -206,12 +206,18 @@ async function main() {
            VALUES ($1,$2,'material',$3,$4,180,180,0,'paid') ON CONFLICT (order_no) DO NOTHING`,
           [`TRIAL-${campus.campusCode}-${String(index + 1).padStart(3, '0')}`, studentId, campus.campusId, firstClass.teacher_id]
         );
-        if (projectId && examId && firstClass) {
-          await client.query(
-            `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,exam_date,remark,created_by)
-             VALUES ($1,$2,$3,$4,$5,'teacher',CURRENT_DATE,$6,$7) ON CONFLICT DO NOTHING`,
-            [studentId, projectId, examId, firstClass.id, index === 0 ? '92' : '88', index === 0 ? '课堂表现积极' : '继续加油', firstClass.teacher_id]
-          );
+        if (projectIds[0] && examIds.length >= 3 && firstClass) {
+          const base = 68 + (studentId % 21);
+          const changes = studentId % 2 === 0 ? [0, 4, 9] : [5, -2, -8];
+          const dates = ['2026-08-01', '2026-08-15', '2026-09-01'];
+          for (let scoreIndex = 0; scoreIndex < 3; scoreIndex += 1) {
+            await client.query(
+              `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,exam_date,remark,created_by)
+               VALUES ($1,$2,$3,$4,$5,'teacher',$6,$7,$8) ON CONFLICT DO NOTHING`,
+              [studentId, projectIds[0], examIds[scoreIndex], firstClass.id, String(base + changes[scoreIndex]), dates[scoreIndex],
+               changes[scoreIndex] > 0 ? '成绩提升明显' : changes[scoreIndex] < 0 ? '成绩需要关注' : '阶段测评', firstClass.teacher_id]
+            );
+          }
         }
       }
       if (firstClass) {

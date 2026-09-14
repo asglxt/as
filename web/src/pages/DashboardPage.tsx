@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, CalendarDays, ClipboardList, Receipt, Users } from 'lucide-react';
+import { Bell, CalendarDays, ClipboardList, Receipt, TrendingDown, Users } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
@@ -24,10 +24,12 @@ const ICONS: Record<string, typeof Users> = {
 export default function DashboardPage() {
   const { user } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [scoreAlerts, setScoreAlerts] = useState<any[]>([]);
 
   useEffect(() => {
     if (user?.role === 'admin' || user?.role === 'teacher') {
       api<DashboardSummary>('/api/dashboard/summary').then(setSummary).catch(() => {});
+      api<any[]>('/api/scores/analytics/alerts').then(setScoreAlerts).catch(() => setScoreAlerts([]));
     }
   }, [user]);
 
@@ -64,6 +66,13 @@ export default function DashboardPage() {
         </section>
 
         <div className="workbench-side">
+          <section className="panel">
+            <div className="panel-header"><h2>成绩预警</h2><span className={`badge ${scoreAlerts.length ? 'orange' : 'green'}`}>{scoreAlerts.length}</span></div>
+            <div className="task-list">
+              {scoreAlerts.slice(0, 5).map((alert) => <Link className="task-item score-alert-task" key={`${alert.student_id}-${alert.id}`} to={`/students/${alert.student_id}`}><div className="task-count"><TrendingDown size={16} /></div><div><b>{alert.student_name}</b><div className="subtitle">{alert.title} · 变动 {Number(alert.change).toFixed(1)} 分</div></div></Link>)}
+              {scoreAlerts.length === 0 && <p className="subtitle">暂无明显成绩下滑预警</p>}
+            </div>
+          </section>
           <section className="panel">
             <div className="panel-header"><h2>常用功能</h2></div>
             <div className="quick-grid">

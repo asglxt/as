@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
+import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
 
 interface StudentDetail {
   student: any;
@@ -15,7 +16,7 @@ interface StudentDetail {
 }
 
 const TABS = [
-  ['overview', '基础信息'], ['classes', '报读课程'], ['scores', '成绩'],
+  ['overview', '基础信息'], ['classes', '报读课程'], ['scores', '成绩'], ['analytics', '成绩分析'],
   ['growth', '成长记录'], ['orders', '订单'], ['account', '学员账户']
 ] as const;
 
@@ -94,6 +95,8 @@ export default function StudentDetailPage() {
       {tab === 'scores' && (
         <div className="panel"><div className="table-wrap"><table className="table"><thead><tr><th>考试日期</th><th>项目</th><th>考试</th><th>班级</th><th>成绩</th><th>来源</th><th>备注</th></tr></thead><tbody>{detail.scores.map((item) => <tr key={item.id}><td>{item.exam_date?.slice(0, 10)}</td><td>{item.project_name}</td><td>{item.exam_name}</td><td>{item.class_name ?? '-'}</td><td><b>{item.score ?? '未考'}</b></td><td>{item.source}</td><td>{item.remark ?? '-'}</td></tr>)}</tbody></table></div></div>
       )}
+
+      {tab === 'analytics' && <ScoreAnalyticsPanel studentId={Number(id)} />}
 
 
       {tab === 'growth' && (
