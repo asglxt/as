@@ -119,3 +119,31 @@ test('attendance deduction also updates remaining fee', async () => {
   assert.equal(Number(after.rows[0].used_fee), 44);
   assert.equal(Number(after.rows[0].remaining_fee), 396);
 });
+
+test('teacher attendance data is limited to own classes', async () => {
+  const adminId = (await app.pool.query("SELECT id FROM users WHERE username='admin'")).rows[0].id;
+  const lesson = await app.pool.query("INSERT INTO lessons (name) VALUES ('Other Teacher Lesson') RETURNING id");
+  const otherClass = await app.pool.query(
+    "INSERT INTO classes (campus_id,name,subject,grade,teacher_id,lesson_id) VALUES ($1,'Other Class','英语','三年级',$2,$3) RETURNING id",
+    [seed.campusId, adminId, lesson.rows[0].id]
+  );
+  const otherStudent = await app.pool.query("INSERT INTO students (campus_id,name) VALUES ($1,'其他学员') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id,student_id,lesson_id,teacher_id) VALUES ($1,$2,$3,$4)', [otherClass.rows[0].id, otherStudent.rows[0].id, lesson.rows[0].id, adminId]);
+  await app.pool.query(
+    `INSERT INTO enrollments (student_id,lesson_id,campus_id,purchased_hours,used_hours,remaining_hours,total_fee,paid_fee,remaining_fee)
+     VALUES ($1,$2,$3,10,0,10,440,440,440)`,
+    [otherStudent.rows[0].id, lesson.rows[0].id, seed.campusId]
+  );
+  const otherSchedule = await app.pool.query(
+    "INSERT INTO schedules (class_id,campus_id,schedule_date,start_time,end_time,teacher_id) VALUES ($1,$2,'2026-09-15','21:00','22:00',$3) RETURNING id",
+    [otherClass.rows[0].id, seed.campusId, adminId]
+  );
+  const today = await app.inject({ method: 'GET', url: '/api/attendance/today?date=2026-09-15', headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(today.json().length, 1);
+  const summary = await app.inject({ method: 'GET', url: '/api/attendance/summary', headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(summary.json().length, 1);
+  const roster = await app.inject({ method: 'GET', url: `/api/attendance/students/${otherSchedule.rows[0].id}`, headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(roster.statusCode, 403);
+  const record = await app.inject({ method: 'POST', url: `/api/attendance/record/${otherSchedule.rows[0].id}`, headers: { authorization: `Bearer ${seed.teacherToken}` }, payload: { records: [{ studentId: Number(otherStudent.rows[0].id), status: 'present' }] } });
+  assert.equal(record.statusCode, 403);
+});

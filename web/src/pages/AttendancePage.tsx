@@ -2,12 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCheck, Search } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
+import { useAuth } from '../auth.tsx';
 
 const STATUS_OPTIONS = [['present', '到课'], ['absent', '缺课'], ['leave', '请假'], ['makeup', '补课']] as const;
 const STATUS_LABELS: Record<string, string> = { present: '到课', absent: '缺课', leave: '请假', makeup: '补课' };
 const EMPTY_FILTERS = { date: new Date().toISOString().slice(0, 10), keyword: '', campusId: '', teacherId: '', classroomId: '', lessonId: '', status: '', page: 1, pageSize: 50 };
 
 export default function AttendancePage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [tab, setTab] = useState<'today' | 'summary'>('today');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [data, setData] = useState<any>({ items: [], total: 0, page: 1, pageSize: 50, summary: { total: 0, pending: 0, recorded: 0 } });
@@ -36,11 +39,13 @@ export default function AttendancePage() {
   }, [tab, queryString]);
   useEffect(() => {
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
-    api<any[]>('/api/classrooms').then(setClassrooms).catch(() => {});
-    api<any[]>('/api/lessons').then(setLessons).catch(() => {});
     api<any[]>('/api/students').then(setStudents).catch(() => {});
-    api<any[]>('/api/roles/staff').then((items) => setTeachers(items.filter((item) => item.is_teacher || item.role === 'teacher'))).catch(() => {});
-  }, []);
+    if (isAdmin) {
+      api<any[]>('/api/classrooms').then(setClassrooms).catch(() => setClassrooms([]));
+      api<any[]>('/api/lessons').then(setLessons).catch(() => setLessons([]));
+      api<any[]>('/api/roles/staff').then((items) => setTeachers(items.filter((item) => item.is_teacher || item.role === 'teacher'))).catch(() => setTeachers([]));
+    }
+  }, [isAdmin]);
   useEffect(() => {
     if (tab === 'summary') api<any[]>(`/api/attendance/summary${summaryStudentId ? `?studentId=${summaryStudentId}` : ''}`).then(setSummary).catch(() => {});
   }, [tab, summaryStudentId]);
@@ -85,9 +90,9 @@ export default function AttendancePage() {
               <label>日期<input type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} /></label>
               <label>班级/学员<input value={filters.keyword} onChange={(e) => setFilters({ ...filters, keyword: e.target.value })} /></label>
               <label>校区<select value={filters.campusId} onChange={(e) => setFilters({ ...filters, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label>教师<select value={filters.teacherId} onChange={(e) => setFilters({ ...filters, teacherId: e.target.value })}><option value="">全部教师</option>{teachers.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
-              <label>教室<select value={filters.classroomId} onChange={(e) => setFilters({ ...filters, classroomId: e.target.value })}><option value="">全部教室</option>{classrooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label>课程<select value={filters.lessonId} onChange={(e) => setFilters({ ...filters, lessonId: e.target.value })}><option value="">全部课程</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              {isAdmin && <label>教师<select value={filters.teacherId} onChange={(e) => setFilters({ ...filters, teacherId: e.target.value })}><option value="">全部教师</option>{teachers.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>}
+              {isAdmin && <label>教室<select value={filters.classroomId} onChange={(e) => setFilters({ ...filters, classroomId: e.target.value })}><option value="">全部教室</option>{classrooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+              {isAdmin && <label>课程<select value={filters.lessonId} onChange={(e) => setFilters({ ...filters, lessonId: e.target.value })}><option value="">全部课程</option>{lessons.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
               <label>状态<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">全部状态</option><option value="pending">待记上课</option><option value="recorded">已记上课</option></select></label>
               <button className="btn primary icon-text" type="submit"><Search size={15} />查询</button>
             </div>
@@ -118,5 +123,3 @@ export default function AttendancePage() {
     </Shell>
   );
 }
-
-

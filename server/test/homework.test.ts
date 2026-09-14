@@ -126,3 +126,22 @@ test('homework list endpoint filters class and returns workflow summary', async 
   assert.equal(res.json().summary.submitted, 1);
   assert.equal(res.json().summary.reviewed, 0);
 });
+
+test('teacher homework list and records are limited to own classes', async () => {
+  const adminId = (await app.pool.query("SELECT id FROM users WHERE username='admin'")).rows[0].id;
+  const otherClass = await app.pool.query(
+    "INSERT INTO classes (campus_id,name,subject,grade,teacher_id) VALUES ($1,'Other HW','英语','一年级',$2) RETURNING id",
+    [seed.campusId, adminId]
+  );
+  const otherStudent = await app.pool.query("INSERT INTO students (campus_id,name) VALUES ($1,'其他作业学员') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id,student_id) VALUES ($1,$2)', [otherClass.rows[0].id, otherStudent.rows[0].id]);
+  const otherHomework = await app.inject({
+    method: 'POST', url: '/api/homework',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { classId: otherClass.rows[0].id, title: '其他老师作业', status: 'published' }
+  });
+  const list = await app.inject({ method: 'GET', url: '/api/homework', headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(list.json().some((item: any) => Number(item.id) === Number(otherHomework.json().id)), false);
+  const records = await app.inject({ method: 'GET', url: `/api/homework/${otherHomework.json().id}/records`, headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(records.statusCode, 403);
+});

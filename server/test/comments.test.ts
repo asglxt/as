@@ -127,3 +127,30 @@ test('comment logs support status filtering and expose read rate', async () => {
   assert.equal(detail.statusCode, 200);
   assert.equal(detail.json()[0].content, '很好');
 });
+
+test('teacher comment logs and recording are limited to own classes', async () => {
+  const adminId = (await app.pool.query("SELECT id FROM users WHERE username='admin'")).rows[0].id;
+  const lesson = await app.pool.query("INSERT INTO lessons (name) VALUES ('Other Comment Lesson') RETURNING id");
+  const cls = await app.pool.query(
+    "INSERT INTO classes (campus_id,name,subject,grade,lesson_id,teacher_id) VALUES ($1,'Other Comment Class','英语','一年级',$2,$3) RETURNING id",
+    [seed.campusId, lesson.rows[0].id, adminId]
+  );
+  const student = await app.pool.query("INSERT INTO students (campus_id,name) VALUES ($1,'其他点评学员') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id,student_id) VALUES ($1,$2)', [cls.rows[0].id, student.rows[0].id]);
+  const schedule = await app.pool.query(
+    "INSERT INTO schedules (class_id,campus_id,schedule_date,start_time,end_time,teacher_id) VALUES ($1,$2,'2026-09-15','21:00','22:00',$3) RETURNING id",
+    [cls.rows[0].id, seed.campusId, adminId]
+  );
+  const log = await app.pool.query(
+    "INSERT INTO teaching_logs (schedule_id,class_id,campus_id,teacher_id,status,taught_at) VALUES ($1,$2,$3,$4,'recorded',now()) RETURNING id",
+    [schedule.rows[0].id, cls.rows[0].id, seed.campusId, adminId]
+  );
+  const logs = await app.inject({ method: 'GET', url: '/api/comments/logs', headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(logs.json().items.some((item: any) => Number(item.teaching_log_id) === Number(log.rows[0].id)), false);
+  const record = await app.inject({
+    method: 'POST', url: `/api/comments/record/${log.rows[0].id}`,
+    headers: { authorization: `Bearer ${seed.teacherToken}` },
+    payload: { comments: [{ studentId: Number(student.rows[0].id), rating: 5, content: '越权点评' }] }
+  });
+  assert.equal(record.statusCode, 403);
+});

@@ -117,3 +117,22 @@ test('score roster supports multiple classes', async () => {
   assert.equal(res.json()[0].classId, Number(cls.rows[0].id));
   assert.equal(res.json()[0].students[0].name, '成绩学员');
 });
+
+test('teacher score roster and bulk entry are limited to own classes', async () => {
+  const adminId = (await app.pool.query("SELECT id FROM users WHERE username='admin'")).rows[0].id;
+  const cls = await app.pool.query(
+    "INSERT INTO classes (campus_id,name,subject,grade,teacher_id) VALUES ($1,'Other Score Class','英语','一年级',$2) RETURNING id",
+    [seed.campusId, adminId]
+  );
+  const student = await app.pool.query("INSERT INTO students (campus_id,name) VALUES ($1,'其他成绩学员') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id,student_id) VALUES ($1,$2)', [cls.rows[0].id, student.rows[0].id]);
+  const roster = await app.inject({ method: 'GET', url: `/api/scores/roster?classIds=${cls.rows[0].id}`, headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(roster.statusCode, 403);
+  const project = (await app.pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows[0].id;
+  const exam = (await app.pool.query('SELECT id FROM exams ORDER BY id LIMIT 1')).rows[0].id;
+  const bulk = await app.inject({
+    method: 'POST', url: '/api/scores/bulk', headers: { authorization: `Bearer ${seed.teacherToken}` },
+    payload: { classId: cls.rows[0].id, projectId: project, examId: exam, examDate: '2026-09-14', scores: [{ studentId: Number(student.rows[0].id), score: '99' }] }
+  });
+  assert.equal(bulk.statusCode, 403);
+});

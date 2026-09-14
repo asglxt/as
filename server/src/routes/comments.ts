@@ -5,6 +5,12 @@ import { requireModule } from '../permissions/module_access.ts';
 export async function commentRoutes(app: FastifyInstance) {
   const guard = [authGuard, requireModule('comments')];
 
+  async function ownsLog(request: any, teachingLogId: number) {
+    if (request.user!.role !== 'teacher') return true;
+    const row = await app.pool.query('SELECT 1 FROM teaching_logs WHERE id=$1 AND teacher_id=$2', [teachingLogId, request.user!.id]);
+    return Boolean(row.rowCount);
+  }
+
   app.get('/templates', { preHandler: guard }, async () => {
     return (await app.pool.query('SELECT * FROM comment_templates ORDER BY id')).rows;
   });
@@ -17,6 +23,7 @@ export async function commentRoutes(app: FastifyInstance) {
     }
     const log = (await app.pool.query('SELECT * FROM teaching_logs WHERE id = $1', [teachingLogId])).rows[0];
     if (!log) return reply.code(404).send({ error: 'teaching log not found' });
+    if (!(await ownsLog(request, teachingLogId))) return reply.code(403).send({ error: 'teaching log forbidden' });
     const client = await app.pool.connect();
     try {
       await client.query('BEGIN');
@@ -42,15 +49,17 @@ export async function commentRoutes(app: FastifyInstance) {
   });
 
   app.get('/logs', { preHandler: guard }, async (request) => {
+    const user = request.user!;
     const query = request.query as { classId?: string; status?: string; start?: string; end?: string; page?: string; pageSize?: string };
     const classId = Number(query.classId) || null;
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 50)));
-    const params: unknown[] = [classId, query.start ?? null, query.end ?? null];
+    const params: unknown[] = [classId, query.start ?? null, query.end ?? null, user.role === 'teacher' ? user.id : null];
     const where = [
       '($1::bigint IS NULL OR tl.class_id = $1)',
       '($2::date IS NULL OR tl.taught_at::date >= $2::date)',
-      '($3::date IS NULL OR tl.taught_at::date <= $3::date)'
+      '($3::date IS NULL OR tl.taught_at::date <= $3::date)',
+      '($4::bigint IS NULL OR tl.teacher_id = $4)'
     ];
     if (query.status === 'pending') where.push('(SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) < (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL)');
     if (query.status === 'completed') where.push('(SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) >= (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL)');
@@ -98,8 +107,9 @@ export async function commentRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/logs/:teachingLogId/comments', { preHandler: guard }, async (request) => {
+  app.get('/logs/:teachingLogId/comments', { preHandler: guard }, async (request, reply) => {
     const teachingLogId = Number((request.params as { teachingLogId: string }).teachingLogId);
+    if (!(await ownsLog(request, teachingLogId))) return reply.code(403).send({ error: 'teaching log forbidden' });
     return (await app.pool.query(
       `SELECT tc.id, tc.student_id, st.name AS student_name, tc.rating, tc.content, tc.flowers, tc.read_at
        FROM teaching_comments tc JOIN students st ON st.id = tc.student_id
@@ -107,7 +117,9 @@ export async function commentRoutes(app: FastifyInstance) {
       [teachingLogId]
     )).rows;
   });
-  app.get('/stats', { preHandler: guard }, async () => {
+  app.get('/stats', { preHandler: guard }, async (request) => {
+    const user = request.user!;
+    const params: unknown[] = [user.role === 'teacher' ? user.id : null];
     return (await app.pool.query(
       `SELECT c.id AS class_id, c.name AS class_name, u.display_name AS teacher_name,
               COUNT(DISTINCT tl.id) AS teaching_log_count,
@@ -118,8 +130,10 @@ export async function commentRoutes(app: FastifyInstance) {
        JOIN classes c ON c.id = tl.class_id
        LEFT JOIN users u ON u.id = tl.teacher_id
        LEFT JOIN teaching_comments tc ON tc.teaching_log_id = tl.id
+       WHERE ($1::bigint IS NULL OR tl.teacher_id = $1)
        GROUP BY c.id, c.name, u.display_name
        ORDER BY c.id`
+      , params
     )).rows;
   });
   app.post('/templates', { preHandler: guard }, async (request, reply) => {

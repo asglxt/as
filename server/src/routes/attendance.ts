@@ -78,6 +78,10 @@ export async function attendanceRoutes(app: FastifyInstance) {
 
   app.get('/today', { preHandler: guard }, async (request) => {
     const date = (request.query as { date?: string }).date ?? new Date().toISOString().slice(0, 10);
+    const user = request.user!;
+    const params: unknown[] = [date];
+    const teacherFilter = user.role === 'teacher' ? ' AND s.teacher_id = $2' : '';
+    if (user.role === 'teacher') params.push(user.id);
     return (await app.pool.query(
       `SELECT s.id AS schedule_id, s.schedule_date, s.start_time, s.end_time, s.is_recorded,
               c.id AS class_id, c.name AS class_name, l.name AS lesson_name,
@@ -88,9 +92,9 @@ export async function attendanceRoutes(app: FastifyInstance) {
        LEFT JOIN users u ON u.id = s.teacher_id
        LEFT JOIN classrooms r ON r.id = s.classroom_id
        JOIN campuses camp ON camp.id = s.campus_id
-       WHERE s.schedule_date = $1::date AND s.status = 'normal'
+       WHERE s.schedule_date = $1::date AND s.status = 'normal'${teacherFilter}
        ORDER BY s.start_time`,
-      [date]
+      params
     )).rows;
   });
 
@@ -145,8 +149,13 @@ export async function attendanceRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/students/:scheduleId', { preHandler: guard }, async (request) => {
+  app.get('/students/:scheduleId', { preHandler: guard }, async (request, reply) => {
     const scheduleId = Number((request.params as { scheduleId: string }).scheduleId);
+    const schedule = (await app.pool.query('SELECT teacher_id FROM schedules WHERE id=$1', [scheduleId])).rows[0];
+    if (!schedule) return [];
+    if (request.user!.role === 'teacher' && Number(schedule.teacher_id) !== Number(request.user!.id)) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
     return (await app.pool.query(
       `SELECT cs.student_id, st.name AS student_name, e.id AS enrollment_id, e.remaining_hours
        FROM schedules sc
@@ -161,6 +170,11 @@ export async function attendanceRoutes(app: FastifyInstance) {
 
   app.post('/record/:scheduleId', { preHandler: guard }, async (request, reply) => {
     const scheduleId = Number((request.params as { scheduleId: string }).scheduleId);
+    const schedule = (await app.pool.query('SELECT teacher_id FROM schedules WHERE id=$1', [scheduleId])).rows[0];
+    if (!schedule) return reply.code(404).send({ error: 'schedule not found' });
+    if (request.user!.role === 'teacher' && Number(schedule.teacher_id) !== Number(request.user!.id)) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
     const body = request.body as { records?: Array<{ studentId?: number; status?: string; remark?: string }> };
     if (!Array.isArray(body.records) || body.records.length === 0) {
       return reply.code(400).send({ error: 'records required' });
@@ -172,15 +186,25 @@ export async function attendanceRoutes(app: FastifyInstance) {
 
   app.get('/summary', { preHandler: guard }, async (request) => {
     const query = request.query as { studentId?: string };
+    const user = request.user!;
+    const params: unknown[] = [query.studentId ? Number(query.studentId) : null];
+    let teacherFilter = '';
+    if (user.role === 'teacher') {
+      params.push(user.id);
+      teacherFilter = ` AND EXISTS (
+        SELECT 1 FROM class_students cs JOIN classes c ON c.id=cs.class_id
+        WHERE cs.student_id=e.student_id AND cs.lesson_id=e.lesson_id AND c.teacher_id=$2 AND cs.left_at IS NULL
+      )`;
+    }
     return (await app.pool.query(
       `SELECT e.id AS enrollment_id, st.name AS student_name, l.name AS lesson_name,
               e.purchased_hours, e.used_hours, e.remaining_hours
        FROM enrollments e
        JOIN students st ON st.id = e.student_id
        JOIN lessons l ON l.id = e.lesson_id
-       WHERE ($1::bigint IS NULL OR e.student_id = $1)
+       WHERE ($1::bigint IS NULL OR e.student_id = $1)${teacherFilter}
        ORDER BY st.id`,
-      [query.studentId ? Number(query.studentId) : null]
+      params
     )).rows;
   });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
+import { useAuth } from '../auth.tsx';
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -17,6 +18,8 @@ const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', 
 const VIEWS = [['time', '时间课表'], ['teacher', '教师课表'], ['classroom', '教室课表'], ['class', '班级课表']] as const;
 
 export default function SchedulesPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [view, setView] = useState<string>('time');
   const [data, setData] = useState<any>({ items: [], total: 0, summary: { total: 0, recorded: 0, pending: 0 } });
@@ -48,11 +51,13 @@ export default function SchedulesPage() {
   useEffect(() => {
     load().catch(() => {});
     api<any[]>('/api/classes').then(setClasses).catch(() => {});
-    api<any[]>('/api/classrooms').then(setClassrooms).catch(() => {});
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
-    api<any[]>('/api/lessons').then(setLessons).catch(() => {});
-    api<any[]>('/api/roles/staff').then(setStaff).catch(() => {});
-  }, []);
+    if (isAdmin) {
+      api<any[]>('/api/classrooms').then(setClassrooms).catch(() => setClassrooms([]));
+      api<any[]>('/api/lessons').then(setLessons).catch(() => setLessons([]));
+      api<any[]>('/api/roles/staff').then(setStaff).catch(() => setStaff([]));
+    }
+  }, [isAdmin]);
   useEffect(() => { load().catch(() => {}); }, [weekStart, filters]);
 
   async function create(e: FormEvent) {
@@ -98,9 +103,9 @@ export default function SchedulesPage() {
       <div className="panel">
         <div className="form-row">
           <label>校区<select value={filters.campusId} onChange={(e) => setFilters({ ...filters, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label>教师<select value={filters.teacherId} onChange={(e) => setFilters({ ...filters, teacherId: e.target.value })}><option value="">全部教师</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
-          <label>教室<select value={filters.classroomId} onChange={(e) => setFilters({ ...filters, classroomId: e.target.value })}><option value="">全部教室</option>{classrooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-          <label>课程<select value={filters.lessonId} onChange={(e) => setFilters({ ...filters, lessonId: e.target.value })}><option value="">全部课程</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+          {isAdmin && <label>教师<select value={filters.teacherId} onChange={(e) => setFilters({ ...filters, teacherId: e.target.value })}><option value="">全部教师</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>}
+          {isAdmin && <label>教室<select value={filters.classroomId} onChange={(e) => setFilters({ ...filters, classroomId: e.target.value })}><option value="">全部教室</option>{classrooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
+          {isAdmin && <label>课程<select value={filters.lessonId} onChange={(e) => setFilters({ ...filters, lessonId: e.target.value })}><option value="">全部课程</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>}
           <label>记上课<select value={filters.recorded} onChange={(e) => setFilters({ ...filters, recorded: e.target.value })}><option value="">全部</option><option value="0">待记</option><option value="1">已记</option></select></label>
         </div>
       </div>
@@ -114,7 +119,7 @@ export default function SchedulesPage() {
         ))}
       </div>
 
-      <form className="form-row" onSubmit={create}>
+      {isAdmin && <form className="form-row" onSubmit={create}>
         <label>班级<select value={form.classId} onChange={(e) => setForm({ ...form, classId: e.target.value })}>
           <option value="">选择班级</option>
           {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -132,7 +137,7 @@ export default function SchedulesPage() {
           {classrooms.map((r) => <option key={r.id} value={r.id}>{r.campus_name} · {r.name}</option>)}
         </select></label>
         <button className="btn primary" type="submit">排课</button>
-      </form>
+      </form>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
         {days.map((day, index) => {

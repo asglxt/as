@@ -6,7 +6,20 @@ import { writeAudit } from '../audit.ts';
 export async function homeworkRoutes(app: FastifyInstance) {
   const guard = [authGuard, requireModule('homework')];
 
+  async function ownsClass(request: any, classId: number) {
+    if (request.user!.role !== 'teacher') return true;
+    const row = await app.pool.query('SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2', [classId, request.user!.id]);
+    return Boolean(row.rowCount);
+  }
+
+  async function ownsHomework(request: any, homeworkId: number) {
+    if (request.user!.role !== 'teacher') return true;
+    const row = await app.pool.query('SELECT 1 FROM homework WHERE id=$1 AND teacher_id=$2', [homeworkId, request.user!.id]);
+    return Boolean(row.rowCount);
+  }
+
   app.get('/', { preHandler: guard }, async (request) => {
+    const user = request.user!;
     const query = request.query as { classId?: string; status?: string };
     return (await app.pool.query(
       `SELECT h.*, c.name AS class_name, u.display_name AS teacher_name,
@@ -19,17 +32,20 @@ export async function homeworkRoutes(app: FastifyInstance) {
        LEFT JOIN users u ON u.id = h.teacher_id
        WHERE ($1::bigint IS NULL OR h.class_id = $1)
          AND ($2::text IS NULL OR h.status = $2)
+         AND ($3::bigint IS NULL OR h.teacher_id = $3)
        ORDER BY h.id DESC`,
-      [query.classId ? Number(query.classId) : null, query.status ?? null]
+      [query.classId ? Number(query.classId) : null, query.status ?? null, user.role === 'teacher' ? user.id : null]
     )).rows;
   });
 
   app.get('/list', { preHandler: guard }, async (request) => {
+    const user = request.user!;
     const query = request.query as { classId?: string; status?: string; keyword?: string; start?: string; end?: string; page?: string; pageSize?: string };
     const page = Math.max(1, Number(query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
     const params: unknown[] = [];
     const where: string[] = ['1 = 1'];
+    if (user.role === 'teacher') { params.push(user.id); where.push(`h.teacher_id = $${params.length}`); }
     if (query.classId) { params.push(Number(query.classId)); where.push(`h.class_id = $${params.length}`); }
     if (query.status) { params.push(query.status); where.push(`h.status = $${params.length}`); }
     if (query.keyword?.trim()) { params.push(`%${query.keyword.trim()}%`); where.push(`h.title ILIKE $${params.length}`); }
@@ -66,8 +82,9 @@ export async function homeworkRoutes(app: FastifyInstance) {
     } };
   });
 
-  app.get('/:id/records', { preHandler: guard }, async (request) => {
+  app.get('/:id/records', { preHandler: guard }, async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
+    if (!(await ownsHomework(request, id))) return reply.code(403).send({ error: 'homework forbidden' });
     return (await app.pool.query(
       `SELECT r.*, st.name AS student_name FROM homework_records r
        JOIN students st ON st.id = r.student_id
@@ -82,6 +99,7 @@ export async function homeworkRoutes(app: FastifyInstance) {
       status?: string; dueAt?: string;
     };
     if (!body.classId || !body.title?.trim()) return reply.code(400).send({ error: 'classId and title required' });
+    if (!(await ownsClass(request, body.classId))) return reply.code(403).send({ error: 'class forbidden' });
     const status = body.status === 'published' ? 'published' : 'draft';
     const client = await app.pool.connect();
     try {
@@ -115,6 +133,7 @@ export async function homeworkRoutes(app: FastifyInstance) {
 
   app.post('/:id/publish', { preHandler: guard }, async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
+    if (!(await ownsHomework(request, id))) return reply.code(403).send({ error: 'homework forbidden' });
     const hw = (await app.pool.query('SELECT * FROM homework WHERE id = $1', [id])).rows[0];
     if (!hw) return reply.code(404).send({ error: 'homework not found' });
     await app.pool.query("UPDATE homework SET status = 'published', assigned_at = now() WHERE id = $1", [id]);
@@ -148,6 +167,7 @@ export async function homeworkRoutes(app: FastifyInstance) {
 
   app.post('/:id/records/:studentId/review', { preHandler: guard }, async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
+    if (!(await ownsHomework(request, id))) return reply.code(403).send({ error: 'homework forbidden' });
     const studentId = Number((request.params as { studentId: string }).studentId);
     const body = request.body as { score?: string; comment?: string };
     const record = (await app.pool.query(

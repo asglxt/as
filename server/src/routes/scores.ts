@@ -6,6 +6,12 @@ export async function scoreRoutes(app: FastifyInstance) {
   const read = [authGuard, requireModule('scores')];
   const write = [authGuard, requireModule('scores'), requireRole('admin')];
 
+  async function teacherOwnsClass(request: any, classId: number) {
+    if (request.user!.role !== 'teacher') return true;
+    const row = await app.pool.query('SELECT 1 FROM classes WHERE id=$1 AND teacher_id=$2', [classId, request.user!.id]);
+    return Boolean(row.rowCount);
+  }
+
   app.get('/projects', { preHandler: read }, async () => {
     return (await app.pool.query('SELECT * FROM exam_projects ORDER BY sort, id')).rows;
   });
@@ -45,6 +51,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     if (!body.projectId || !body.examId || !body.examDate || !Array.isArray(body.scores)) {
       return reply.code(400).send({ error: 'projectId, examId, examDate, scores required' });
     }
+    if (body.classId && !(await teacherOwnsClass(request, body.classId))) return reply.code(403).send({ error: 'class forbidden' });
     const client = await app.pool.connect();
     try {
       await client.query('BEGIN');
@@ -79,6 +86,10 @@ export async function scoreRoutes(app: FastifyInstance) {
       .map(Number)
       .filter((id) => Number.isInteger(id) && id > 0);
     if (!classIds.length) return reply.code(400).send({ error: 'classIds required' });
+    if (request.user!.role === 'teacher') {
+      const allowed = (await app.pool.query('SELECT COUNT(*)::int AS count FROM classes WHERE id=ANY($1::bigint[]) AND teacher_id=$2', [classIds, request.user!.id])).rows[0].count;
+      if (Number(allowed) !== classIds.length) return reply.code(403).send({ error: 'class forbidden' });
+    }
     const includeInactive = query.includeInactive === '1' || query.includeInactive === 'true';
     const classes = (await app.pool.query(
       `SELECT id, name
@@ -106,6 +117,10 @@ export async function scoreRoutes(app: FastifyInstance) {
 
   app.get('/export', { preHandler: read }, async (request, reply) => {
     const query = request.query as { classId?: string; projectId?: string; examId?: string; start?: string; end?: string };
+    const teacherScope = request.user!.role === 'teacher' ? ' AND EXISTS (SELECT 1 FROM classes tc WHERE tc.id = ss.class_id AND tc.teacher_id = $6)' : '';
+    const params: unknown[] = [query.classId ? Number(query.classId) : null, query.projectId ? Number(query.projectId) : null,
+      query.examId ? Number(query.examId) : null, query.start ?? null, query.end ?? null];
+    if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
       `SELECT st.name AS student_name, p.name AS project_name, e.name AS exam_name,
               ss.score, ss.source, ss.exam_date, c.name AS class_name, ss.remark
@@ -118,10 +133,9 @@ export async function scoreRoutes(app: FastifyInstance) {
          AND ($2::bigint IS NULL OR ss.project_id = $2)
          AND ($3::bigint IS NULL OR ss.exam_id = $3)
          AND ($4::date IS NULL OR ss.exam_date >= $4::date)
-         AND ($5::date IS NULL OR ss.exam_date <= $5::date)
+         AND ($5::date IS NULL OR ss.exam_date <= $5::date)${teacherScope}
        ORDER BY ss.exam_date DESC`,
-      [query.classId ? Number(query.classId) : null, query.projectId ? Number(query.projectId) : null,
-       query.examId ? Number(query.examId) : null, query.start ?? null, query.end ?? null]
+      params
     )).rows;
     const header = 'student_name,project_name,exam_name,score,source,exam_date,class_name,remark';
     const lines = rows.map((r: any) => [r.student_name, r.project_name, r.exam_name, r.score ?? '', r.source,
@@ -138,20 +152,22 @@ export async function scoreRoutes(app: FastifyInstance) {
     };
     const limit = Math.min(Number(query.limit ?? 50), 200);
     const offset = Number(query.offset ?? 0);
+    const teacherScope = request.user!.role === 'teacher' ? ` AND EXISTS (SELECT 1 FROM classes tc WHERE tc.id = ss.class_id AND tc.teacher_id = $7)` : '';
     const where = `
       WHERE ($1::bigint IS NULL OR ss.student_id = $1)
         AND ($2::bigint IS NULL OR ss.class_id = $2)
         AND ($3::bigint IS NULL OR ss.project_id = $3)
         AND ($4::bigint IS NULL OR ss.exam_id = $4)
         AND ($5::date IS NULL OR ss.exam_date >= $5::date)
-        AND ($6::date IS NULL OR ss.exam_date <= $6::date)`;
-    const params = [
+        AND ($6::date IS NULL OR ss.exam_date <= $6::date)${teacherScope}`;
+    const params: unknown[] = [
       query.studentId ? Number(query.studentId) : null,
       query.classId ? Number(query.classId) : null,
       query.projectId ? Number(query.projectId) : null,
       query.examId ? Number(query.examId) : null,
       query.start ?? null, query.end ?? null
     ];
+    if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
       `SELECT ss.*, st.name AS student_name, p.name AS project_name, e.name AS exam_name, c.name AS class_name
        FROM student_scores ss
