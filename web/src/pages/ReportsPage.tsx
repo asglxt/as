@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
+import { BarChart3, Download, GraduationCap, UserCog, Users, Wallet } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 
@@ -25,7 +26,15 @@ const TABS = [
 ] as const;
 
 const RANGES = [
-  ['today', '今日'], ['week', '本周'], ['month', '本月'], ['lastMonth', '上月'], ['year', '今年']
+  ['today', '今日'], ['week', '本周'], ['month', '本月'], ['lastMonth', '上月'], ['year', '今年'], ['custom', '自定义']
+] as const;
+
+const REPORT_CATALOG = [
+  { key: 'overview', label: '经营总览', description: '报名、学员、收入、欠费、退费和课时', icon: BarChart3 },
+  { key: 'students', label: '招生与学员', description: '新增趋势、校区对比和学员状态', icon: Users },
+  { key: 'teaching', label: '教务报表', description: '排课、上课、出勤和课时消耗', icon: GraduationCap },
+  { key: 'finance', label: '财务报表', description: '应收实收、退费充值和订单类型', icon: Wallet },
+  { key: 'employees', label: '员工报表', description: '员工、教师和教师带班情况', icon: UserCog }
 ] as const;
 
 function rangeOf(key: string) {
@@ -50,12 +59,14 @@ export default function ReportsPage() {
   const [campuses, setCampuses] = useState<any[]>([]);
   const [campusIds, setCampusIds] = useState<number[]>([]);
   const [rangeKey, setRangeKey] = useState('month');
+  const [customStart, setCustomStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [granularity, setGranularity] = useState('day');
   const [data, setData] = useState<any>(null);
   const [drill, setDrill] = useState<{ metric: string; rows: any[] } | null>(null);
   const [message, setMessage] = useState('');
 
-  const range = useMemo(() => rangeOf(rangeKey), [rangeKey]);
+  const range = useMemo(() => rangeKey === 'custom' ? { start: customStart, end: customEnd } : rangeOf(rangeKey), [rangeKey, customStart, customEnd]);
   const query = useMemo(() => {
     const params = new URLSearchParams();
     if (campusIds.length) params.set('campusIds', campusIds.join(','));
@@ -97,36 +108,60 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportCurrentReport() {
+    if (!data) return;
+    const rows: Array<[string, string, unknown]> = [];
+    for (const [key, value] of Object.entries(data)) {
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => rows.push([key, String(index + 1), JSON.stringify(item)]));
+      } else if (value && typeof value === 'object') {
+        for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) rows.push([key, childKey, childValue]);
+      } else {
+        rows.push([key, 'value', value]);
+      }
+    }
+    const csv = [['分类', '项目', '值'], ...rows].map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${tab}-report.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   function toggleCampus(id: number) {
     setCampusIds(campusIds.includes(id) ? campusIds.filter((c) => c !== id) : [...campusIds, id]);
   }
 
   return (
     <Shell>
-      <h1 className="page-title">报表</h1>
-      <div className="form-row">
-        <span className="label">校区：</span>
-        {campuses.map((campus) => (
-          <label key={campus.id}>
-            <input type="checkbox" checked={campusIds.includes(campus.id)} onChange={() => toggleCampus(campus.id)} /> {campus.name}
-          </label>
-        ))}
+      <div className="panel-header"><div><h1 className="page-title">报表中心</h1><p className="page-subtitle">按校区和时间查看经营、招生学员、教务、财务和员工数据。</p></div><button className="btn icon-text" onClick={exportCurrentReport} disabled={!data}><Download size={15} />导出当前报表</button></div>
+      <div className="cards">
+        {REPORT_CATALOG.map((item) => {
+          const Icon = item.icon;
+          return <button key={item.key} className="stat-card" style={{ textAlign: 'left', cursor: 'pointer', borderColor: tab === item.key ? '#2563eb' : undefined }} onClick={() => setTab(item.key)}><Icon size={20} color={tab === item.key ? '#2563eb' : '#718096'} /><b style={{ fontSize: 16 }}>{item.label}</b><span>{item.description}</span></button>;
+        })}
       </div>
-      <div className="form-row">
-        <label>时间范围<select value={rangeKey} onChange={(e) => setRangeKey(e.target.value)}>
-          {RANGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></label>
-        <label>粒度<select value={granularity} onChange={(e) => setGranularity(e.target.value)}>
-          <option value="day">按日</option>
-          <option value="week">按周</option>
-          <option value="month">按月</option>
-        </select></label>
-        <span className="subtitle">{range.start} ~ {range.end}</span>
-        {TABS.map(([key, label]) => (
-          <button key={key} className={tab === key ? 'btn primary' : 'btn'} onClick={() => setTab(key)}>{label}</button>
-        ))}
-      </div>
-      {message && <p className="subtitle">{message}</p>}
+      <section className="panel">
+        <div className="form-row">
+          <span className="label">校区：</span>
+          {campuses.map((campus) => (
+            <label key={campus.id} className="btn"><input type="checkbox" checked={campusIds.includes(campus.id)} onChange={() => toggleCampus(campus.id)} /> {campus.name}</label>
+          ))}
+          {!campuses.length && <span className="subtitle">全部校区</span>}
+        </div>
+        <div className="form-row">
+          <label>时间范围<select value={rangeKey} onChange={(e) => setRangeKey(e.target.value)}>
+            {RANGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select></label>
+          <label>粒度<select value={granularity} onChange={(e) => setGranularity(e.target.value)}>
+            <option value="day">按日</option><option value="week">按周</option><option value="month">按月</option>
+          </select></label>
+          {rangeKey === 'custom' && <><label>开始日期<input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} /></label><label>结束日期<input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} /></label></>}
+          <span className="badge blue">{range.start} ~ {range.end}</span>
+        </div>
+      </section>
+      {message && <div className="summary-strip"><span>{message}</span></div>}
 
       {tab === 'overview' && data && (
         <>
