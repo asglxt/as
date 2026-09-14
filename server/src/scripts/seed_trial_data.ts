@@ -8,7 +8,7 @@ const config = {
   teachersPerCampus: Number(process.env.TRIAL_TEACHERS_PER_CAMPUS ?? 5),
   studentsPerClass: Number(process.env.TRIAL_STUDENTS_PER_CLASS ?? 20)
 };
-const teacherPassword = process.env.TRIAL_TEACHER_PASSWORD ?? 'demo123456';
+const teacherPassword = process.env.TRIAL_TEACHER_PASSWORD ?? '123456';
 const pool = createPool(loadConfig().databaseUrl);
 
 async function main() {
@@ -36,6 +36,11 @@ async function main() {
 
       const teacherIds: number[] = [];
       for (const teacher of campus.teachers) {
+        const legacyUsername = `trial_${campus.campusCode.toLowerCase()}_teacher_${String(teacherIds.length + 1).padStart(2, '0')}`;
+        await client.query(
+          'UPDATE users SET username=$1 WHERE username=$2 AND NOT EXISTS (SELECT 1 FROM users WHERE username=$1)',
+          [teacher.username, legacyUsername]
+        );
         const result = await client.query(
           `INSERT INTO users (username, password_hash, display_name, role, campus_id, employee_no, department, is_teacher, employment_status)
            VALUES ($1,$2,$3,'teacher',$4,$5,'教学部',true,'active')
@@ -170,13 +175,19 @@ async function main() {
         "SELECT id FROM students WHERE campus_id=$1 AND notes LIKE 'TRIAL_SEED_V1:%' ORDER BY id LIMIT 2",
         [campus.campusId]
       )).rows.map((row) => Number(row.id));
+      const parentUsername = `parent${plan.indexOf(campus) + 1}`;
+      const legacyParentUsername = `trial_${campus.campusCode.toLowerCase()}_parent`;
+      await client.query(
+        'UPDATE users SET username=$1 WHERE username=$2 AND NOT EXISTS (SELECT 1 FROM users WHERE username=$1)',
+        [parentUsername, legacyParentUsername]
+      );
       const parent = await client.query(
         `INSERT INTO users (username,password_hash,display_name,role,campus_id,employment_status)
          VALUES ($1,$2,$3,'parent',$4,'active')
          ON CONFLICT (username) DO UPDATE SET password_hash=EXCLUDED.password_hash,display_name=EXCLUDED.display_name,
            role='parent',campus_id=EXCLUDED.campus_id
          RETURNING id`,
-        [`trial_${campus.campusCode.toLowerCase()}_parent`, passwordHash, `${campus.campusName}试用家长`, campus.campusId]
+        [parentUsername, passwordHash, `${campus.campusName}试用家长`, campus.campusId]
       );
       for (const studentId of campusStudents) {
         await client.query('INSERT INTO parent_bindings (parent_user_id,student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [parent.rows[0].id, studentId]);

@@ -11,11 +11,11 @@ export default function MobileRoleLoginPage({ role }: { role: 'teacher' | 'paren
   const [error, setError] = useState('');
   const target = role === 'teacher' ? '/teacher/mobile' : '/parent/mobile';
   const title = role === 'teacher' ? '教师手机端' : '家长手机端';
-  const demoUsername = role === 'teacher' ? 'trial_gc_teacher_01' : 'trial_gc_parent';
+  const demoUsername = role === 'teacher' ? 'teacher1' : 'parent1';
 
   function fillDemo() {
     setUsername(demoUsername);
-    setPassword('demo123456');
+    setPassword('123456');
     setError('');
   }
 

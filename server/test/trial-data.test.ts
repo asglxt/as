@@ -14,6 +14,8 @@ test('trial plan creates campus classes with pinyin abbreviation and Chinese nam
   assert.equal(plan[0].classes.length, 2);
   assert.equal(plan[1].classes.length, 2);
   assert.equal(plan[0].teachers.length, 2);
+  assert.equal(plan[0].teachers[0].username, 'teacher1');
+  assert.equal(plan[0].teachers[1].username, 'teacher2');
   assert.equal(plan[0].classes[0].name, 'GC-01教室-初级');
   assert.match(plan[1].classes[1].name, /^HEX-\d{2}教室-/);
 

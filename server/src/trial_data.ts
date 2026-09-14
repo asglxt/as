@@ -54,7 +54,7 @@ export function buildTrialDataPlan(campuses: TrialCampusInput[], config: TrialDa
     const teachers = Array.from({ length: config.teachersPerCampus }, (_, index) => {
       const globalIndex = campusIndex * config.teachersPerCampus + index;
       return {
-        username: `trial_${code.toLowerCase()}_teacher_${String(index + 1).padStart(2, '0')}`,
+        username: `teacher${globalIndex + 1}`,
         displayName: personName(globalIndex, index % 2 === 1),
         employeeNo: `TRIAL-${code}-${String(index + 1).padStart(2, '0')}`
       };
