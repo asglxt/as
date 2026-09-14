@@ -104,3 +104,25 @@ test('homework list returns submission statistics', async () => {
   assert.equal(Number(row.student_count), 2);
   assert.equal(Number(row.submitted_count), 1);
 });
+
+test('homework list endpoint filters class and returns workflow summary', async () => {
+  const created = await app.inject({
+    method: 'POST', url: '/api/homework',
+    headers: { authorization: `Bearer ${seed.teacherToken}` },
+    payload: { classId, title: '筛选作业', status: 'published' }
+  });
+  await app.inject({
+    method: 'POST', url: `/api/homework/${created.json().id}/records/${studentA}/submit`,
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { content: '提交内容' }
+  });
+  const res = await app.inject({
+    method: 'GET', url: `/api/homework/list?classId=${classId}&status=published&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.teacherToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].title, '筛选作业');
+  assert.equal(res.json().summary.total, 1);
+  assert.equal(res.json().summary.submitted, 1);
+  assert.equal(res.json().summary.reviewed, 0);
+});

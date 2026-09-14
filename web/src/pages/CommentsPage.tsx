@@ -1,11 +1,14 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { MessageSquare, Search } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 
 export default function CommentsPage() {
   const [tab, setTab] = useState<'list' | 'templates'>('list');
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any>({ items: [], total: 0, page: 1, pageSize: 50, summary: { total: 0, completed: 0, pending: 0 } });
+  const [filters, setFilters] = useState({ classId: '', status: '', start: '', end: '', page: 1, pageSize: 50 });
   const [templates, setTemplates] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
   const [activeLog, setActiveLog] = useState<any>(null);
   const [roster, setRoster] = useState<any[]>([]);
   const [marks, setMarks] = useState<Record<number, { rating: string; content: string; flowers: string }>>({});
@@ -13,20 +16,33 @@ export default function CommentsPage() {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [message, setMessage] = useState('');
 
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (String(value)) params.set(key, String(value));
+    return params.toString();
+  }, [filters]);
+
   async function load() {
-    setLogs(await api<any[]>('/api/comments/logs'));
+    setLogs(await api<any>(`/api/comments/logs?${queryString}`));
     setTemplates(await api<any[]>('/api/comments/templates'));
+    setClasses(await api<any[]>('/api/classes'));
   }
 
   useEffect(() => {
     load().catch(() => {});
-  }, []);
+  }, [queryString]);
 
   async function openLog(log: any) {
     setActiveLog(log);
     setMarks({});
     const list = await api<any[]>(`/api/attendance/students/${log.schedule_id}`);
     setRoster(list);
+    const existing = await api<any[]>(`/api/comments/logs/${log.teaching_log_id}/comments`);
+    const next: Record<number, { rating: string; content: string; flowers: string }> = {};
+    for (const item of existing) {
+      next[item.student_id] = { rating: item.rating ? String(item.rating) : '', content: item.content ?? '', flowers: String(item.flowers ?? 0) };
+    }
+    setMarks(next);
   }
 
   function applyTemplate() {
@@ -83,30 +99,40 @@ export default function CommentsPage() {
 
   return (
     <Shell>
-      <h1 className="page-title">课堂点评</h1>
-      <div className="form-row">
-        <button className={tab === 'list' ? 'btn primary' : 'btn'} onClick={() => setTab('list')}>点评列表</button>
-        <button className={tab === 'templates' ? 'btn primary' : 'btn'} onClick={() => setTab('templates')}>点评模板</button>
-      </div>
-      {message && <p className="subtitle">{message}</p>}
+      <div className="panel-header"><div><h1 className="page-title">课堂点评</h1><p className="page-subtitle">按上课记录逐学员点评，统计点评完成率和家长已读率。</p></div></div>
+      <div className="tabs"><button className={tab === 'list' ? 'active' : ''} onClick={() => setTab('list')}>点评记录</button><button className={tab === 'templates' ? 'active' : ''} onClick={() => setTab('templates')}>点评模板</button></div>
+      {message && <div className="summary-strip"><span>{message}</span></div>}
 
       {tab === 'list' && (
         <>
+          <div className="cards"><div className="stat-card"><b>{logs.summary.total}</b><span>应点评课程</span></div><div className="stat-card"><b>{logs.summary.completed}</b><span>已完成点评</span></div><div className="stat-card"><b>{logs.summary.pending}</b><span>待点评课程</span></div></div>
+          <form className="panel" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, page: 1 }); }}>
+            <div className="form-row">
+              <label>班级<select value={filters.classId} onChange={(e) => setFilters({ ...filters, classId: e.target.value })}><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>点评状态<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">全部状态</option><option value="pending">待点评</option><option value="completed">已完成</option></select></label>
+              <label>开始日期<input type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /></label>
+              <label>结束日期<input type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /></label>
+              <button className="btn primary icon-text" type="submit"><Search size={15} />查询</button>
+            </div>
+          </form>
           <div className="panel">
             <table className="table">
-              <thead><tr><th>上课时间</th><th>班级</th><th>教师</th><th>学员数</th><th>已点评</th><th>操作</th></tr></thead>
+              <thead><tr><th>上课时间</th><th>班级</th><th>教师</th><th>学员数</th><th>已点评</th><th>已读</th><th>点评率</th><th>已读率</th><th>操作</th></tr></thead>
               <tbody>
-                {logs.map((log) => (
+                {logs.items.map((log: any) => (
                   <tr key={log.teaching_log_id}>
                     <td>{log.taught_at ? String(log.taught_at).slice(0, 16).replace('T', ' ') : '-'}</td>
                     <td>{log.class_name}</td>
                     <td>{log.teacher_name ?? '-'}</td>
                     <td>{log.student_count}</td>
                     <td>{log.comment_count}</td>
+                    <td>{log.read_count}</td>
+                    <td>{log.comment_rate}%</td>
+                    <td>{log.read_rate}%</td>
                     <td><button className="btn primary" onClick={() => openLog(log)}>点评</button></td>
                   </tr>
                 ))}
-                {logs.length === 0 && <tr><td colSpan={6}>暂无上课记录（先到「记上课」记录一节课）</td></tr>}
+                {logs.items.length === 0 && <tr><td colSpan={9}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><MessageSquare size={28} /><p>暂无符合条件的点评记录</p></div></td></tr>}
               </tbody>
             </table>
           </div>

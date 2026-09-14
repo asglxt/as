@@ -24,6 +24,48 @@ export async function homeworkRoutes(app: FastifyInstance) {
     )).rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const query = request.query as { classId?: string; status?: string; keyword?: string; start?: string; end?: string; page?: string; pageSize?: string };
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+    const params: unknown[] = [];
+    const where: string[] = ['1 = 1'];
+    if (query.classId) { params.push(Number(query.classId)); where.push(`h.class_id = $${params.length}`); }
+    if (query.status) { params.push(query.status); where.push(`h.status = $${params.length}`); }
+    if (query.keyword?.trim()) { params.push(`%${query.keyword.trim()}%`); where.push(`h.title ILIKE $${params.length}`); }
+    if (query.start) { params.push(query.start); where.push(`h.created_at::date >= $${params.length}::date`); }
+    if (query.end) { params.push(query.end); where.push(`h.created_at::date <= $${params.length}::date`); }
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE h.status = 'published')::int AS published,
+              COUNT(*) FILTER (WHERE h.status = 'draft')::int AS draft,
+              COALESCE(SUM((SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id AND r.status <> 'not_submitted')),0)::int AS submitted,
+              COALESCE(SUM((SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id AND r.status = 'reviewed')),0)::int AS reviewed
+       FROM homework h WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT h.*, c.name AS class_name, u.display_name AS teacher_name,
+              (SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id)::int AS student_count,
+              (SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id AND r.status <> 'not_submitted')::int AS submitted_count,
+              (SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id AND r.status = 'reviewed')::int AS reviewed_count,
+              (SELECT COUNT(*) FROM homework_records r WHERE r.homework_id = h.id AND r.read_at IS NULL AND r.status <> 'not_submitted')::int AS unread_count
+       FROM homework h JOIN classes c ON c.id = h.class_id LEFT JOIN users u ON u.id = h.teacher_id
+       WHERE ${baseWhere} ORDER BY h.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]
+    )).rows.map((row) => ({
+      ...row, id: Number(row.id), class_id: Number(row.class_id), student_count: Number(row.student_count),
+      submitted_count: Number(row.submitted_count), reviewed_count: Number(row.reviewed_count), unread_count: Number(row.unread_count),
+      submit_rate: Number(row.student_count) ? Math.round((Number(row.submitted_count) / Number(row.student_count)) * 100) : 0,
+      review_rate: Number(row.submitted_count) ? Math.round((Number(row.reviewed_count) / Number(row.submitted_count)) * 100) : 0
+    }));
+    return { items, total: Number(summary.total), page, pageSize, summary: {
+      total: Number(summary.total), published: Number(summary.published), draft: Number(summary.draft),
+      submitted: Number(summary.submitted), reviewed: Number(summary.reviewed)
+    } };
+  });
+
   app.get('/:id/records', { preHandler: guard }, async (request) => {
     const id = Number((request.params as { id: string }).id);
     return (await app.pool.query(

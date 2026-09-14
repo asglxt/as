@@ -98,7 +98,32 @@ test('comment logs list returns teaching logs with counts', async () => {
     headers: { authorization: `Bearer ${seed.teacherToken}` }
   });
   assert.equal(res.statusCode, 200);
-  const rows = res.json();
+  const rows = res.json().items;
   assert.ok(rows.some((r: any) => Number(r.teaching_log_id) === Number(teachingLogId)));
   assert.ok(rows[0].class_name);
+});
+
+test('comment logs support status filtering and expose read rate', async () => {
+  const { teachingLogId, studentId } = await seedLesson();
+  const pending = await app.inject({
+    method: 'GET', url: '/api/comments/logs?status=pending', headers: { authorization: `Bearer ${seed.teacherToken}` }
+  });
+  assert.equal(pending.statusCode, 200);
+  assert.equal(pending.json().items.length, 1);
+  assert.equal(Number(pending.json().items[0].student_count), 1);
+  await app.inject({
+    method: 'POST', url: `/api/comments/record/${teachingLogId}`,
+    headers: { authorization: `Bearer ${seed.teacherToken}` },
+    payload: { comments: [{ studentId, rating: 5, content: '很好', flowers: 1 }] }
+  });
+  const completed = await app.inject({
+    method: 'GET', url: '/api/comments/logs?status=completed', headers: { authorization: `Bearer ${seed.teacherToken}` }
+  });
+  assert.equal(completed.json().items.length, 1);
+  assert.equal(Number(completed.json().items[0].comment_count), 1);
+  const detail = await app.inject({
+    method: 'GET', url: `/api/comments/logs/${teachingLogId}/comments`, headers: { authorization: `Bearer ${seed.teacherToken}` }
+  });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json()[0].content, '很好');
 });

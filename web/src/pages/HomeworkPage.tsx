@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { BookOpen, Search } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 
 export default function HomeworkPage() {
   const [tab, setTab] = useState<'list' | 'draft' | 'create'>('list');
-  const [items, setItems] = useState<any[]>([]);
+  const [data, setData] = useState<any>({ items: [], total: 0, page: 1, pageSize: 20, summary: { total: 0, published: 0, draft: 0, submitted: 0, reviewed: 0 } });
+  const [filters, setFilters] = useState({ classId: '', status: '', keyword: '', start: '', end: '', page: 1, pageSize: 20 });
   const [classes, setClasses] = useState<any[]>([]);
   const [records, setRecords] = useState<any[]>([]);
   const [activeHomework, setActiveHomework] = useState<any>(null);
@@ -12,15 +14,18 @@ export default function HomeworkPage() {
   const [reviewForm, setReviewForm] = useState<Record<number, { score: string; comment: string }>>({});
   const [message, setMessage] = useState('');
 
-  async function load(status?: string) {
-    const query = status ? `?status=${status}` : '';
-    setItems(await api<any[]>(`/api/homework${query}`));
-  }
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (String(value)) params.set(key, String(value));
+    return params.toString();
+  }, [filters]);
+
+  async function load() { setData(await api<any>(`/api/homework/list?${queryString}`)); }
 
   useEffect(() => {
     load().catch(() => {});
     api<any[]>('/api/classes').then(setClasses).catch(() => {});
-  }, []);
+  }, [queryString]);
 
   async function create(e: FormEvent, status: 'draft' | 'published') {
     e.preventDefault();
@@ -68,8 +73,8 @@ export default function HomeworkPage() {
     <Shell>
       <h1 className="page-title">作业</h1>
       <div className="form-row">
-        <button className={tab === 'list' ? 'btn primary' : 'btn'} onClick={() => { setTab('list'); load(); }}>作业列表</button>
-        <button className={tab === 'draft' ? 'btn primary' : 'btn'} onClick={() => { setTab('draft'); load('draft'); }}>草稿箱</button>
+        <button className={tab === 'list' ? 'btn primary' : 'btn'} onClick={() => { setTab('list'); setFilters({ ...filters, status: '' }); }}>作业列表</button>
+        <button className={tab === 'draft' ? 'btn primary' : 'btn'} onClick={() => { setTab('draft'); setFilters({ ...filters, status: 'draft' }); }}>草稿箱</button>
         <button className={tab === 'create' ? 'btn primary' : 'btn'} onClick={() => setTab('create')}>布置作业</button>
       </div>
       {message && <p className="subtitle">{message}</p>}
@@ -90,17 +95,28 @@ export default function HomeworkPage() {
 
       {(tab === 'list' || tab === 'draft') && (
         <>
+          <div className="cards"><div className="stat-card"><b>{data.summary.total}</b><span>作业总数</span></div><div className="stat-card"><b>{data.summary.published}</b><span>已发布</span></div><div className="stat-card"><b>{data.summary.submitted}</b><span>已提交</span></div><div className="stat-card"><b>{data.summary.reviewed}</b><span>已批改</span></div></div>
+          <form className="panel" onSubmit={(e) => { e.preventDefault(); setFilters({ ...filters, page: 1 }); }}>
+            <div className="form-row">
+              <label>作业标题<input value={filters.keyword} onChange={(e) => setFilters({ ...filters, keyword: e.target.value })} /></label>
+              <label>班级<select value={filters.classId} onChange={(e) => setFilters({ ...filters, classId: e.target.value })}><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label>状态<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="closed">已关闭</option></select></label>
+              <label>开始日期<input type="date" value={filters.start} onChange={(e) => setFilters({ ...filters, start: e.target.value })} /></label>
+              <label>结束日期<input type="date" value={filters.end} onChange={(e) => setFilters({ ...filters, end: e.target.value })} /></label>
+              <button className="btn primary icon-text" type="submit"><Search size={15} />查询</button>
+            </div>
+          </form>
           <div className="panel">
             <table className="table">
               <thead>
-                <tr><th>标题</th><th>班级</th><th>教师</th><th>状态</th><th>学员</th><th>已提交</th><th>已批改</th><th>未读</th><th>截止</th><th>操作</th></tr>
+                <tr><th>标题</th><th>班级</th><th>教师</th><th>状态</th><th>学员</th><th>已提交</th><th>提交率</th><th>已批改</th><th>批改率</th><th>截止</th><th>操作</th></tr>
               </thead>
               <tbody>
-                {items.map((h) => (
+                {data.items.map((h: any) => (
                   <tr key={h.id}>
                     <td>{h.title}</td><td>{h.class_name}</td><td>{h.teacher_name ?? '-'}</td>
                     <td>{STATUS_LABEL[h.status] ?? h.status}</td>
-                    <td>{h.student_count}</td><td>{h.submitted_count}</td><td>{h.reviewed_count}</td><td>{h.unread_count}</td>
+                    <td>{h.student_count}</td><td>{h.submitted_count}</td><td>{h.submit_rate}%</td><td>{h.reviewed_count}</td><td>{h.review_rate}%</td>
                     <td>{h.due_at ? String(h.due_at).slice(0, 10) : '-'}</td>
                     <td>
                       {h.status === 'draft' && <button className="btn" onClick={() => publish(h.id)}>发布</button>}
@@ -108,7 +124,7 @@ export default function HomeworkPage() {
                     </td>
                   </tr>
                 ))}
-                {items.length === 0 && <tr><td colSpan={10}>暂无作业</td></tr>}
+                {data.items.length === 0 && <tr><td colSpan={11}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><BookOpen size={28} /><p>暂无符合条件的作业</p></div></td></tr>}
               </tbody>
             </table>
           </div>

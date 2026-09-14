@@ -42,19 +42,69 @@ export async function commentRoutes(app: FastifyInstance) {
   });
 
   app.get('/logs', { preHandler: guard }, async (request) => {
-    const classId = Number((request.query as { classId?: string }).classId) || null;
-    return (await app.pool.query(
+    const query = request.query as { classId?: string; status?: string; start?: string; end?: string; page?: string; pageSize?: string };
+    const classId = Number(query.classId) || null;
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 50)));
+    const params: unknown[] = [classId, query.start ?? null, query.end ?? null];
+    const where = [
+      '($1::bigint IS NULL OR tl.class_id = $1)',
+      '($2::date IS NULL OR tl.taught_at::date >= $2::date)',
+      '($3::date IS NULL OR tl.taught_at::date <= $3::date)'
+    ];
+    if (query.status === 'pending') where.push('(SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) < (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL)');
+    if (query.status === 'completed') where.push('(SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) >= (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL)');
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE (SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) >= (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL))::int AS completed
+       FROM teaching_logs tl WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
       `SELECT tl.id AS teaching_log_id, tl.schedule_id, tl.taught_at, tl.status,
               c.id AS class_id, c.name AS class_name, u.display_name AS teacher_name,
               (SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id) AS comment_count,
+              (SELECT COUNT(*) FROM teaching_comments tc WHERE tc.teaching_log_id = tl.id AND tc.read_at IS NOT NULL) AS read_count,
               (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = tl.class_id AND cs.left_at IS NULL) AS student_count
        FROM teaching_logs tl
        JOIN classes c ON c.id = tl.class_id
        LEFT JOIN users u ON u.id = tl.teacher_id
-       WHERE ($1::bigint IS NULL OR tl.class_id = $1)
+       WHERE ${baseWhere}
        ORDER BY tl.taught_at DESC NULLS LAST
-       LIMIT 100`,
-      [classId]
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]
+    )).rows.map((row) => {
+      const studentCount = Number(row.student_count);
+      const commentCount = Number(row.comment_count);
+      const readCount = Number(row.read_count);
+      return {
+        ...row,
+        teaching_log_id: Number(row.teaching_log_id),
+        class_id: Number(row.class_id),
+        student_count: studentCount,
+        comment_count: commentCount,
+        read_count: readCount,
+        comment_rate: studentCount ? Math.round((commentCount / studentCount) * 100) : 0,
+        read_rate: commentCount ? Math.round((readCount / commentCount) * 100) : 0
+      };
+    });
+    return {
+      items,
+      total: Number(summary.total),
+      page,
+      pageSize,
+      summary: { total: Number(summary.total), completed: Number(summary.completed), pending: Number(summary.total) - Number(summary.completed) }
+    };
+  });
+
+  app.get('/logs/:teachingLogId/comments', { preHandler: guard }, async (request) => {
+    const teachingLogId = Number((request.params as { teachingLogId: string }).teachingLogId);
+    return (await app.pool.query(
+      `SELECT tc.id, tc.student_id, st.name AS student_name, tc.rating, tc.content, tc.flowers, tc.read_at
+       FROM teaching_comments tc JOIN students st ON st.id = tc.student_id
+       WHERE tc.teaching_log_id = $1 ORDER BY st.id`,
+      [teachingLogId]
     )).rows;
   });
   app.get('/stats', { preHandler: guard }, async () => {
