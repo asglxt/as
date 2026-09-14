@@ -43,7 +43,7 @@ export async function studentRoutes(app: FastifyInstance) {
     const user = request.user!;
     if (user.role === 'admin') {
       const result = await app.pool.query('SELECT * FROM students ORDER BY id');
-      return result.rows.map(toNumberedStudent);
+      return result.rows;
     }
     if (user.role === 'teacher') {
       const result = await app.pool.query(
@@ -54,7 +54,7 @@ export async function studentRoutes(app: FastifyInstance) {
          ORDER BY s.id`,
         [user.id]
       );
-      return result.rows.map(toNumberedStudent);
+      return result.rows;
     }
     return [];
   });
@@ -198,7 +198,7 @@ export async function studentRoutes(app: FastifyInstance) {
         [student.id, guardian.name.trim(), guardian.relation ?? null, guardian.phone ?? null, Boolean(guardian.isPrimary)]
       );
     }
-    return toNumberedStudent(student);
+    return student;
   });
 
   app.get('/:id', { preHandler: [authGuard] }, async (request, reply) => {
@@ -266,7 +266,7 @@ export async function studentRoutes(app: FastifyInstance) {
       ]
     );
     if (!result.rowCount) return reply.code(404).send({ error: 'student not found' });
-    return toNumberedStudent(result.rows[0]);
+    return result.rows[0];
   });
 
   app.post('/:id/classes', { preHandler: [authGuard, requireRole('admin')] }, async (request, reply) => {
@@ -394,4 +394,3 @@ async function loadStudentDetail(app: FastifyInstance, studentId: number) {
 
   return { student: toNumberedStudent(student), guardians, classes, scores, growthRecords, orders, account };
 }
-
