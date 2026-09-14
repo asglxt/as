@@ -1,6 +1,6 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BarChart3, Bell, BookOpen, Building2, CalendarDays, CheckSquare, ChevronDown,
+  BarChart3, Bell, BookOpen, Boxes, Building2, CalendarDays, CheckSquare, ChevronDown,
   CircleDollarSign, ClipboardList, DoorOpen, FileSpreadsheet, GraduationCap,
   Import, LayoutDashboard, LogOut, MessageSquare, Receipt, School,
   ShieldCheck, Undo2, Upload, Users, Wallet
@@ -18,7 +18,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/scores': '成绩', '/comments': '课堂点评', '/homework': '作业', '/orders': '订单',
   '/accounts': '学员账户', '/refunds': '退费', '/reports': '报表', '/import': '导入',
   '/roles': '角色权限', '/campuses': '校区设置'
-  , '/notifications': '通知公告'
+  , '/notifications': '通知公告', '/materials': '教材与杂费'
 };
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -41,6 +41,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         { to: '/orders', label: '订单与收款', icon: <Receipt size={17} />, module: 'finance' },
         { to: '/accounts', label: '学员账户', icon: <CircleDollarSign size={17} />, module: 'finance' },
         { to: '/refunds', label: '退费管理', icon: <Undo2 size={17} />, module: 'finance' }
+        , { to: '/materials', label: '教材与杂费', icon: <Boxes size={17} />, module: 'finance' }
       ]
     },
     {

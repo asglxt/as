@@ -6,7 +6,7 @@ import { writeAudit } from '../audit.ts';
 import { applyHours } from './enrollments.ts';
 
 interface OrderItemInput {
-  itemType?: string; lessonId?: number; classId?: number; name?: string;
+  itemType?: string; lessonId?: number; classId?: number; materialId?: number; name?: string;
   quantity?: number; unitPrice?: number;
 }
 
@@ -115,6 +115,27 @@ export async function orderRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'studentId, orderType and items required' });
     }
     const items = calcItems(body.items);
+    if (['enroll', 'renew'].includes(body.orderType)) {
+      const lessonIds = [...new Set(items.map((item) => item.lessonId).filter((lessonId): lessonId is number => Boolean(lessonId)))];
+      const fees = await app.pool.query(
+        `SELECT * FROM fee_items
+         WHERE enabled = true AND auto_apply_on_enroll = true
+           AND (lesson_id IS NULL OR lesson_id = ANY($1::bigint[]))
+         ORDER BY sort, id`,
+        [lessonIds]
+      );
+      for (const fee of fees.rows) {
+        if (items.some((item) => item.itemType === 'material' && item.name === fee.name)) continue;
+        items.push({
+          itemType: 'material',
+          materialId: fee.material_id === null ? undefined : Number(fee.material_id),
+          name: fee.name,
+          quantity: 1,
+          unitPrice: Number(fee.amount),
+          amount: Number(fee.amount)
+        });
+      }
+    }
     const receivable = items.reduce((sum, item) => sum + item.amount, 0);
     const orderNo = `O${Date.now()}${crypto.randomInt(100, 999)}`;
     const client = await app.pool.connect();
@@ -129,10 +150,11 @@ export async function orderRoutes(app: FastifyInstance) {
       );
       for (const item of items) {
         await client.query(
-          `INSERT INTO order_items (order_id, item_type, lesson_id, class_id, name, quantity, unit_price, amount)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO order_items (order_id, item_type, lesson_id, class_id, material_id, name, quantity, unit_price, amount, issue_status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
           [order.rows[0].id, item.itemType ?? 'course', item.lessonId ?? null, item.classId ?? null,
-           item.name ?? '未命名明细', item.quantity, item.unitPrice, item.amount]
+           item.materialId ?? null, item.name ?? '未命名明细', item.quantity, item.unitPrice, item.amount,
+           item.itemType === 'material' && item.materialId ? 'pending' : 'not_required']
         );
       }
       await client.query('COMMIT');

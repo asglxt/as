@@ -25,6 +25,7 @@ import { enrollmentRoutes } from './routes/enrollments.ts';
 import { attendanceRoutes } from './routes/attendance.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
 import { notificationRoutes } from './routes/notifications.ts';
+import { materialRoutes } from './routes/materials.ts';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -68,6 +69,7 @@ export async function buildApp() {
   await app.register(enrollmentRoutes, { prefix: '/api/enrollments' });
   await app.register(attendanceRoutes, { prefix: '/api/attendance' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
+  await app.register(materialRoutes, { prefix: '/api/materials' });
 
   return app;
 }

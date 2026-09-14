@@ -17,12 +17,13 @@ interface OrderListResponse {
 }
 
 const EMPTY_FILTERS = { keyword: '', type: '', campusId: '', paymentStatus: '', status: '', start: '', end: '', page: 1, pageSize: 20 };
-const EMPTY_ITEM = { itemType: 'course', lessonId: '', name: '', quantity: '1', unitPrice: '' };
+const EMPTY_ITEM = { itemType: 'course', lessonId: '', materialId: '', name: '', quantity: '1', unitPrice: '' };
 
 export default function OrdersPage() {
   const [data, setData] = useState<OrderListResponse>({ items: [], total: 0, page: 1, pageSize: 20, summary: { receivable: 0, received: 0, accountChange: 0, arrears: 0, points: 0 } });
   const [students, setStudents] = useState<any[]>([]);
   const [lessons, setLessons] = useState<any[]>([]);
+  const [materials, setMaterials] = useState<any[]>([]);
   const [campuses, setCampuses] = useState<any[]>([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [showCreate, setShowCreate] = useState(false);
@@ -46,6 +47,7 @@ export default function OrdersPage() {
   useEffect(() => {
     api<any[]>('/api/students').then(setStudents).catch(() => {});
     api<any[]>('/api/lessons').then(setLessons).catch(() => {});
+    api<any>('/api/materials/list?status=active').then((result) => setMaterials(result.items)).catch(() => {});
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
   }, []);
 
@@ -61,7 +63,7 @@ export default function OrdersPage() {
         body: JSON.stringify({
           studentId: Number(form.studentId), orderType: form.orderType, campusId: form.campusId ? Number(form.campusId) : null,
           orderSource: form.orderSource, tags: form.tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
-          items: items.map((item) => ({ itemType: item.itemType, lessonId: item.lessonId ? Number(item.lessonId) : null, name: item.name || lessons.find((lesson) => String(lesson.id) === item.lessonId)?.name || '未命名明细', quantity: Number(item.quantity || 1), unitPrice: Number(item.unitPrice || 0) }))
+          items: items.map((item) => ({ itemType: item.itemType, lessonId: item.lessonId ? Number(item.lessonId) : null, materialId: item.materialId ? Number(item.materialId) : null, name: item.name || lessons.find((lesson) => String(lesson.id) === item.lessonId)?.name || materials.find((material) => String(material.id) === item.materialId)?.name || '未命名明细', quantity: Number(item.quantity || 1), unitPrice: Number(item.unitPrice || 0) }))
         })
       });
       setMessage(`订单已创建：应收 ${Number(res.receivable)} 元`);
@@ -135,7 +137,7 @@ export default function OrdersPage() {
             <label>订单标签<input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="多个标签用逗号分隔" /></label>
           </div>
           <h2>订单明细</h2>
-          {items.map((item, index) => <div className="form-row" key={index}><label>类型<select value={item.itemType} onChange={(e) => updateItem(index, { itemType: e.target.value })}><option value="course">课程</option><option value="material">教材</option><option value="recharge">充值</option><option value="transfer">转课</option></select></label><label>课程<select value={item.lessonId} onChange={(e) => updateItem(index, { lessonId: e.target.value })}><option value="">自定义</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.name}</option>)}</select></label><label>名称<input value={item.name} onChange={(e) => updateItem(index, { name: e.target.value })} /></label><label>数量<input type="number" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></label><label>单价<input type="number" value={item.unitPrice} onChange={(e) => updateItem(index, { unitPrice: e.target.value })} /></label>{items.length > 1 && <button type="button" className="btn danger" onClick={() => setItems(items.filter((_, i) => i !== index))}>删除</button>}</div>)}
+          {items.map((item, index) => <div className="form-row" key={index}><label>类型<select value={item.itemType} onChange={(e) => updateItem(index, { itemType: e.target.value, lessonId: '', materialId: '', name: '', unitPrice: '' })}><option value="course">课程</option><option value="material">教材</option><option value="recharge">充值</option><option value="transfer">转课</option></select></label>{item.itemType === 'material' ? <label>教材<select value={item.materialId} onChange={(e) => { const selected = materials.find((material) => String(material.id) === e.target.value); updateItem(index, { materialId: e.target.value, name: selected?.name ?? '', unitPrice: selected ? String(selected.price) : '' }); }}><option value="">自定义教材</option>{materials.map((material) => <option key={material.id} value={material.id}>{material.name}{material.stock <= 0 ? '（无库存）' : ''}</option>)}</select></label> : <label>课程<select value={item.lessonId} onChange={(e) => updateItem(index, { lessonId: e.target.value })}><option value="">自定义</option>{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>{lesson.name}</option>)}</select></label>}<label>名称<input value={item.name} onChange={(e) => updateItem(index, { name: e.target.value })} /></label><label>数量<input type="number" value={item.quantity} onChange={(e) => updateItem(index, { quantity: e.target.value })} /></label><label>单价<input type="number" value={item.unitPrice} onChange={(e) => updateItem(index, { unitPrice: e.target.value })} /></label>{items.length > 1 && <button type="button" className="btn danger" onClick={() => setItems(items.filter((_, i) => i !== index))}>删除</button>}</div>)}
           <div className="toolbar"><button type="button" className="btn" onClick={() => setItems([...items, { ...EMPTY_ITEM }])}>添加明细</button><button className="btn primary" type="submit">保存订单</button></div>
         </form>
       )}
@@ -175,5 +177,3 @@ export default function OrdersPage() {
     </Shell>
   );
 }
-
-

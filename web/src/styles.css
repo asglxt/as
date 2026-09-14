@@ -119,6 +119,8 @@ button { color: inherit; }
 .summary-strip b { color: #1d2d49; font-size: 14px; }
 .compact-field { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #d7deea; border-radius: 6px; background: #fff; color: #748197; }
 .compact-field input { min-width: 190px; border: 0; outline: 0; background: transparent; }
+.check-field { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 7px; min-height: 34px; color: #66748a; font-size: 12px; }
+.check-field input { min-width: 0 !important; width: auto !important; }
 .progress-track { width: 92px; height: 6px; border-radius: 4px; background: #e8edf5; overflow: hidden; margin-bottom: 4px; }
 .progress-track span { display: block; height: 100%; border-radius: inherit; background: #0f766e; }
 .empty-state { padding: 36px; display: grid; justify-items: center; gap: 8px; color: #8a96a8; }
