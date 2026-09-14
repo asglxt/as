@@ -96,6 +96,50 @@ export async function scoreRoutes(app: FastifyInstance) {
     return rows;
   });
 
+  app.get('/analytics/class-ratings', { preHandler: [authGuard] }, async (request, reply) => {
+    const user = request.user!;
+    if (!['admin', 'teacher'].includes(user.role)) return reply.code(403).send({ error: 'forbidden' });
+    const query = request.query as { classId?: string; limit?: string };
+    const params: unknown[] = [user.role === 'teacher' ? user.id : null];
+    const where = ["ss.score ~ '^-?[0-9]+(\\.[0-9]+)?$'", '($1::bigint IS NULL OR c.teacher_id=$1)'];
+    if (query.classId) { params.push(Number(query.classId)); where.push(`c.id=$${params.length}`); }
+    const limit = Math.min(500, Math.max(1, Number(query.limit ?? 200)));
+    const rows = (await app.pool.query(
+      `SELECT c.id AS class_id,c.name AS class_name,c.grade,c.teacher_id,u.display_name AS teacher_name,
+              ss.project_id,p.name AS project_name,ss.exam_id,e.name AS exam_name,ss.exam_date,
+              ROUND(AVG(ss.score::numeric),2)::float AS average_score,
+              MIN(ss.score::numeric)::float AS min_score,MAX(ss.score::numeric)::float AS max_score,
+              COUNT(*)::int AS participant_count
+       FROM student_scores ss
+       JOIN classes c ON c.id=ss.class_id
+       JOIN exam_projects p ON p.id=ss.project_id
+       JOIN exams e ON e.id=ss.exam_id
+       LEFT JOIN users u ON u.id=c.teacher_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY c.id,c.name,c.grade,c.teacher_id,u.display_name,ss.project_id,p.name,ss.exam_id,e.name,ss.exam_date
+       ORDER BY ss.exam_date DESC,c.name LIMIT $${params.length + 1}`,
+      [...params, limit]
+    )).rows.map((row) => {
+      const average = Number(row.average_score);
+      const rating = average >= 95 ? 'S班' : average >= 90 ? 'A+班' : '启航班';
+      return {
+        ...row,
+        class_id: Number(row.class_id), teacher_id: Number(row.teacher_id),
+        average_score: average, min_score: Number(row.min_score), max_score: Number(row.max_score),
+        participant_count: Number(row.participant_count), rating
+      };
+    });
+    return {
+      rows,
+      summary: {
+        total: rows.length,
+        s: rows.filter((row) => row.rating === 'S班').length,
+        a: rows.filter((row) => row.rating === 'A+班').length,
+        qihang: rows.filter((row) => row.rating === '启航班').length
+      }
+    };
+  });
+
   app.get('/projects', { preHandler: read }, async () => {
     return (await app.pool.query('SELECT * FROM exam_projects ORDER BY sort, id')).rows;
   });
