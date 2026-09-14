@@ -16,6 +16,32 @@ export async function classroomRoutes(app: FastifyInstance) {
     )).rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const query = request.query as { campusId?: string; status?: string; keyword?: string };
+    const params: unknown[] = [];
+    const where: string[] = ['1 = 1'];
+    if (query.campusId) { params.push(Number(query.campusId)); where.push(`r.campus_id = $${params.length}`); }
+    if (query.status) { params.push(query.status); where.push(`r.status = $${params.length}`); }
+    if (query.keyword?.trim()) { params.push(`%${query.keyword.trim()}%`); where.push(`r.name ILIKE $${params.length}`); }
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE r.status = 'active')::int AS active,
+              COUNT(*) FILTER (WHERE r.status = 'disabled')::int AS disabled, COALESCE(SUM(r.capacity),0)::int AS capacity
+       FROM classrooms r WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT r.*, c.name AS campus_name,
+              (SELECT COUNT(*) FROM schedules s WHERE s.classroom_id = r.id AND s.status = 'normal')::int AS schedule_count
+       FROM classrooms r JOIN campuses c ON c.id = r.campus_id
+       WHERE ${baseWhere} ORDER BY r.campus_id, r.name`,
+      params
+    )).rows.map((row) => ({ ...row, id: Number(row.id), campus_id: Number(row.campus_id), capacity: row.capacity === null ? null : Number(row.capacity), schedule_count: Number(row.schedule_count) }));
+    return { items, total: Number(summary.total), summary: {
+      total: Number(summary.total), active: Number(summary.active), disabled: Number(summary.disabled), capacity: Number(summary.capacity)
+    } };
+  });
+
   app.post('/', { preHandler: guard }, async (request, reply) => {
     const body = request.body as { campusId?: number; name?: string; capacity?: number };
     if (!body.campusId || !body.name?.trim()) return reply.code(400).send({ error: 'campusId and name required' });

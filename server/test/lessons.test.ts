@@ -50,3 +50,23 @@ test('teacher cannot create lesson', async () => {
   });
   assert.equal(res.statusCode, 403);
 });
+
+test('lesson list endpoint filters and returns course summary', async () => {
+  const suffix = Date.now().toString();
+  const category = await app.inject({ method: 'POST', url: '/api/lessons/categories', headers: { authorization: `Bearer ${seed.adminToken}` }, payload: { name: `素质课程${suffix}` } });
+  assert.equal(category.statusCode, 200, category.body);
+  assert.ok(category.json().id, category.body);
+  const lesson = await app.inject({
+    method: 'POST', url: '/api/lessons',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { name: `思维训练${suffix}`, categoryId: category.json().id, teachingMode: 'small_class', feeMode: 'per_hour' }
+  });
+  const res = await app.inject({
+    method: 'GET', url: `/api/lessons/list?keyword=${encodeURIComponent(suffix)}&status=active&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].id, Number(lesson.json().id));
+  assert.equal(res.json().summary.total, 1);
+  assert.equal(res.json().summary.active, 1);
+});

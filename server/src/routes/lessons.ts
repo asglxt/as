@@ -59,6 +59,38 @@ export async function lessonRoutes(app: FastifyInstance) {
     return result.rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const query = request.query as { keyword?: string; categoryId?: string; subjectId?: string; status?: string; page?: string; pageSize?: string };
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+    const params: unknown[] = [];
+    const where: string[] = ['1 = 1'];
+    if (query.keyword?.trim()) { params.push(`%${query.keyword.trim()}%`); where.push(`l.name ILIKE $${params.length}`); }
+    if (query.categoryId) { params.push(Number(query.categoryId)); where.push(`l.category_id = $${params.length}`); }
+    if (query.subjectId) { params.push(Number(query.subjectId)); where.push(`l.subject_id = $${params.length}`); }
+    if (query.status) {
+      params.push(query.status === 'active' ? 'on_sale' : query.status === 'disabled' ? 'off_sale' : query.status);
+      where.push(`l.status = $${params.length}`);
+    }
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE l.status = 'on_sale')::int AS active,
+              COUNT(*) FILTER (WHERE l.status = 'off_sale')::int AS disabled
+       FROM lessons l WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT l.*, c.name AS category_name, s.name AS subject_name,
+              (SELECT COUNT(*) FROM classes cl WHERE cl.lesson_id = l.id)::int AS class_count
+       FROM lessons l LEFT JOIN lesson_categories c ON c.id = l.category_id LEFT JOIN subjects s ON s.id = l.subject_id
+       WHERE ${baseWhere} ORDER BY l.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]
+    )).rows.map((row) => ({ ...row, id: Number(row.id), class_count: Number(row.class_count) }));
+    return { items, total: Number(summary.total), page, pageSize, summary: {
+      total: Number(summary.total), active: Number(summary.active), disabled: Number(summary.disabled)
+    } };
+  });
+
   app.post('/', { preHandler: guard }, async (request, reply) => {
     const body = request.body as {
       name?: string; categoryId?: number; subjectId?: number;
