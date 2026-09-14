@@ -6,6 +6,7 @@
     "dev:server": "pnpm --filter server run dev",
     "dev:web": "pnpm --filter web run dev",
     "test": "pnpm --filter server test",
-    "migrate": "pnpm --filter server run migrate"
+    "migrate": "pnpm --filter server run migrate",
+    "seed:trial": "pnpm --filter server run seed:trial"
   }
 }

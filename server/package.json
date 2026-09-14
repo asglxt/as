@@ -6,6 +6,7 @@
     "dev": "node --watch src/server.ts",
     "start": "node src/server.ts",
     "migrate": "node src/migrate.ts",
+    "seed:trial": "node src/scripts/seed_trial_data.ts",
     "test": "node --test --test-concurrency=1 \"test/*.test.ts\""
   },
   "dependencies": {
