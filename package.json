@@ -1,0 +1,11 @@
+{
+  "name": "school-system",
+  "private": true,
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev:server": "pnpm --filter server run dev",
+    "dev:web": "pnpm --filter web run dev",
+    "test": "pnpm --filter server test",
+    "migrate": "pnpm --filter server run migrate"
+  }
+}

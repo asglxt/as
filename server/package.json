@@ -1,0 +1,25 @@
+{
+  "name": "server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "start": "node src/server.ts",
+    "migrate": "node src/migrate.ts",
+    "test": "node --test --test-concurrency=1 \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "bcryptjs": "^3.0.2",
+    "csv-parse": "^6.1.0",
+    "fastify": "^5.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.3"
+  }
+}
