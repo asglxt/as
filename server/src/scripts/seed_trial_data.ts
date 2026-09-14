@@ -23,7 +23,7 @@ async function main() {
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0 };
+  const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0 };
 
   const client = await pool.connect();
   try {
@@ -98,6 +98,22 @@ async function main() {
         }
         summary.classes += 1;
 
+        for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+          const scheduleDate = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const existingSchedule = await client.query(
+            'SELECT id FROM schedules WHERE class_id=$1 AND schedule_date=$2::date AND start_time=$3::time LIMIT 1',
+            [classId, scheduleDate, classItem.startTime]
+          );
+          if (!existingSchedule.rowCount) {
+            await client.query(
+              `INSERT INTO schedules (class_id,campus_id,schedule_date,start_time,end_time,teacher_id,classroom_id,created_by)
+               VALUES ($1,$2,$3::date,$4::time,$5::time,$6,$7,$8)`,
+              [classId, campus.campusId, scheduleDate, classItem.startTime, classItem.endTime, teacherId, classroomIds[classIndex], teacherId]
+            );
+          }
+          summary.schedules += 1;
+        }
+
         for (const student of classItem.students) {
           let studentId: number;
           let created = false;
@@ -126,6 +142,24 @@ async function main() {
                teacher_id = EXCLUDED.teacher_id, start_date = EXCLUDED.start_date, status = 'active', left_at = NULL`,
             [classId, studentId, lessonId, teacherId, startDate]
           );
+          const existingEnrollment = await client.query(
+            'SELECT id FROM enrollments WHERE student_id=$1 AND lesson_id=$2 AND campus_id=$3 LIMIT 1',
+            [studentId, lessonId, campus.campusId]
+          );
+          if (!existingEnrollment.rowCount) {
+            const enrollment = await client.query(
+              `INSERT INTO enrollments (student_id,lesson_id,campus_id,purchased_hours,used_hours,remaining_hours,
+                 total_fee,paid_fee,remaining_fee,arrears,unit_price)
+               VALUES ($1,$2,$3,48,0,48,4800,4800,4800,0,100) RETURNING id`,
+              [studentId, lessonId, campus.campusId]
+            );
+            await client.query(
+              `INSERT INTO hour_transactions (enrollment_id,student_id,type,hours,balance_after,remark,created_by)
+               VALUES ($1,$2,'purchase',48,48,'试用课时',$3)`,
+              [enrollment.rows[0].id, studentId, teacherId]
+            );
+          }
+          summary.enrollments += 1;
           summary.students += 1;
         }
       }

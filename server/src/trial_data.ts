@@ -23,6 +23,7 @@ const MALE_NAMES = ['伟', '强', '磊', '军', '洋', '勇', '杰', '峰', '涛
 const FEMALE_NAMES = ['静', '敏', '丽', '艳', '娟', '霞', '燕', '玲', '芳', '婷', '雪', '倩', '晶', '颖', '琳', '娜', '丹', '梅', '欣', '悦'];
 const SUBJECTS = ['英语', '数学', '语文', '编程', '英语进阶'];
 const LEVELS = ['初级', '初级', '中级', '中级', '高级', '高级', '进阶', '进阶', '冲刺', '精英'];
+const TIME_SLOTS = [['09:00', '10:30'], ['10:40', '12:10'], ['14:00', '15:30'], ['15:40', '17:10'], ['18:30', '20:00']];
 
 function campusCode(campus: TrialCampusInput) {
   return campus.code?.trim().toUpperCase() || CAMPUS_ABBR[campus.name] || `XQ${campus.id}`;
@@ -70,6 +71,7 @@ export function buildTrialDataPlan(campuses: TrialCampusInput[], config: TrialDa
       const classroom = classrooms[classIndex];
       const level = LEVELS[classIndex % LEVELS.length];
       const lessonIndex = classIndex % lessons.length;
+      const timeSlot = (classIndex + Math.floor(classIndex / config.teachersPerCampus)) % TIME_SLOTS.length;
       const students = Array.from({ length: config.studentsPerClass }, (_, studentIndex) => {
         const globalStudentIndex = campusIndex * config.classesPerCampus * config.studentsPerClass
           + classIndex * config.studentsPerClass + studentIndex;
@@ -92,6 +94,9 @@ export function buildTrialDataPlan(campuses: TrialCampusInput[], config: TrialDa
         grade: level,
         teacherIndex: classIndex % teachers.length,
         lessonIndex,
+        timeSlot,
+        startTime: TIME_SLOTS[timeSlot][0],
+        endTime: TIME_SLOTS[timeSlot][1],
         capacity: 20,
         students
       };

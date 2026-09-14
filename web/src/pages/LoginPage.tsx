@@ -12,8 +12,8 @@ export default function LoginPage() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      await login(username, password);
-      navigate('/dashboard');
+      const user = await login(username, password);
+      navigate(user.role === 'teacher' ? '/teacher/mobile' : '/dashboard');
     } catch (err: any) {
       setError(err.message);
     }

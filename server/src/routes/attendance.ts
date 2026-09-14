@@ -6,6 +6,73 @@ import { applyHours } from './enrollments.ts';
 
 const DEDUCT: Record<string, number> = { present: 1, absent: 1, leave: 0, makeup: 1 };
 
+export async function recordAttendance(
+  app: FastifyInstance,
+  scheduleId: number,
+  records: Array<{ studentId?: number; status?: string; remark?: string }>,
+  actorId: number
+) {
+  const schedule = (await app.pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId])).rows[0];
+  if (!schedule) return { error: 'schedule not found' as const, statusCode: 404 };
+  if (schedule.is_recorded) return { error: '该节课已记上课' as const, statusCode: 409 };
+
+  const client = await app.pool.connect();
+  let teachingLogId = 0;
+  try {
+    await client.query('BEGIN');
+    const log = await client.query(
+      `INSERT INTO teaching_logs (schedule_id, class_id, campus_id, teacher_id, classroom_id, status, taught_at, recorded_by, recorded_at)
+       VALUES ($1,$2,$3,$4,$5,'recorded', now(), $6, now()) RETURNING *`,
+      [scheduleId, schedule.class_id, schedule.campus_id, schedule.teacher_id, schedule.classroom_id, actorId]
+    );
+    teachingLogId = log.rows[0].id;
+    for (const record of records) {
+      if (!record.studentId || !record.status) continue;
+      const hours = DEDUCT[record.status] ?? 0;
+      await client.query(
+        `INSERT INTO attendance_records (teaching_log_id, student_id, status, hours_deducted, remark)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [teachingLogId, record.studentId, record.status, hours, record.remark ?? null]
+      );
+    }
+    await client.query('UPDATE schedules SET is_recorded = true WHERE id = $1', [scheduleId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  for (const record of records) {
+    if (!record.studentId || !record.status) continue;
+    const hours = DEDUCT[record.status] ?? 0;
+    if (hours <= 0) continue;
+    const enrollment = (await app.pool.query(
+      `SELECT e.id, e.unit_price, e.total_fee, e.purchased_hours
+       FROM enrollments e
+       JOIN class_students cs ON cs.lesson_id = e.lesson_id
+       WHERE e.student_id = $1 AND cs.class_id = $2 LIMIT 1`,
+      [record.studentId, schedule.class_id]
+    )).rows[0];
+    if (enrollment) {
+      await applyHours(app, enrollment.id, 'consume', -hours, '上课扣课时', actorId, teachingLogId);
+      const unitPrice = Number(enrollment.unit_price) || (Number(enrollment.purchased_hours) > 0
+        ? Number(enrollment.total_fee) / Number(enrollment.purchased_hours) : 0);
+      const deductFee = hours * unitPrice;
+      if (deductFee > 0) {
+        await app.pool.query(
+          `UPDATE enrollments SET used_fee = used_fee + $1,
+             remaining_fee = GREATEST(0, total_fee - (used_fee + $1)) WHERE id = $2`,
+          [deductFee, enrollment.id]
+        );
+      }
+    }
+  }
+  await writeAudit(app, actorId, 'attendance_record', 'teaching_log', teachingLogId, { scheduleId });
+  return { ok: true, teachingLogId };
+}
+
 export async function attendanceRoutes(app: FastifyInstance) {
   const guard = [authGuard, requireModule('attendance')];
 
@@ -98,65 +165,9 @@ export async function attendanceRoutes(app: FastifyInstance) {
     if (!Array.isArray(body.records) || body.records.length === 0) {
       return reply.code(400).send({ error: 'records required' });
     }
-    const schedule = (await app.pool.query('SELECT * FROM schedules WHERE id = $1', [scheduleId])).rows[0];
-    if (!schedule) return reply.code(404).send({ error: 'schedule not found' });
-    if (schedule.is_recorded) return reply.code(409).send({ error: '该节课已记上课' });
-
-    const client = await app.pool.connect();
-    let teachingLogId = 0;
-    try {
-      await client.query('BEGIN');
-      const log = await client.query(
-        `INSERT INTO teaching_logs (schedule_id, class_id, campus_id, teacher_id, classroom_id, status, taught_at, recorded_by, recorded_at)
-         VALUES ($1,$2,$3,$4,$5,'recorded', now(), $6, now()) RETURNING *`,
-        [scheduleId, schedule.class_id, schedule.campus_id, schedule.teacher_id, schedule.classroom_id, request.user!.id]
-      );
-      teachingLogId = log.rows[0].id;
-      for (const record of body.records) {
-        if (!record.studentId || !record.status) continue;
-        const hours = DEDUCT[record.status] ?? 0;
-        await client.query(
-          `INSERT INTO attendance_records (teaching_log_id, student_id, status, hours_deducted, remark)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [teachingLogId, record.studentId, record.status, hours, record.remark ?? null]
-        );
-      }
-      await client.query('UPDATE schedules SET is_recorded = true WHERE id = $1', [scheduleId]);
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-
-    for (const record of body.records) {
-      if (!record.studentId || !record.status) continue;
-      const hours = DEDUCT[record.status] ?? 0;
-      if (hours <= 0) continue;
-      const enrollment = (await app.pool.query(
-        `SELECT e.id, e.unit_price, e.total_fee, e.purchased_hours
-         FROM enrollments e
-         JOIN class_students cs ON cs.lesson_id = e.lesson_id
-         WHERE e.student_id = $1 AND cs.class_id = $2 LIMIT 1`,
-        [record.studentId, schedule.class_id]
-      )).rows[0];
-      if (enrollment) {
-        await applyHours(app, enrollment.id, 'consume', -hours, '上课扣课时', request.user!.id, teachingLogId);
-        const unitPrice = Number(enrollment.unit_price) || (Number(enrollment.purchased_hours) > 0
-          ? Number(enrollment.total_fee) / Number(enrollment.purchased_hours) : 0);
-        const deductFee = hours * unitPrice;
-        if (deductFee > 0) {
-          await app.pool.query(
-            `UPDATE enrollments SET used_fee = used_fee + $1,
-               remaining_fee = GREATEST(0, total_fee - (used_fee + $1)) WHERE id = $2`,
-            [deductFee, enrollment.id]
-          );
-        }
-      }
-    }
-    await writeAudit(app, request.user!.id, 'attendance_record', 'teaching_log', teachingLogId, { scheduleId });
-    return { ok: true, teachingLogId };
+    const result = await recordAttendance(app, scheduleId, body.records, request.user!.id);
+    if ('error' in result) return reply.code(result.statusCode ?? 500).send({ error: result.error });
+    return result;
   });
 
   app.get('/summary', { preHandler: guard }, async (request) => {

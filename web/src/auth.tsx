@@ -12,7 +12,7 @@ export interface User {
 interface AuthState {
   user: User | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -52,7 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ username, password })
     });
     localStorage.setItem('token', data.token);
-    setUser(await withPermissions(data.user));
+    const nextUser = await withPermissions(data.user);
+    setUser(nextUser);
+    return nextUser;
   }
 
   function logout() {

@@ -27,6 +27,7 @@ import ReportsPage from './pages/ReportsPage.tsx';
 import CampusesPage from './pages/CampusesPage.tsx';
 import NotificationsPage from './pages/NotificationsPage.tsx';
 import MaterialsPage from './pages/MaterialsPage.tsx';
+import TeacherMobilePage from './pages/TeacherMobilePage.tsx';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -59,6 +60,7 @@ export default function App() {
       <Route path="/campuses" element={<RequireAuth><CampusesPage /></RequireAuth>} />
       <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
       <Route path="/materials" element={<RequireAuth><MaterialsPage /></RequireAuth>} />
+      <Route path="/teacher/mobile" element={<RequireAuth><TeacherMobilePage /></RequireAuth>} />
       <Route path="/lessons" element={<RequireAuth><LessonsPage /></RequireAuth>} />
       <Route path="/classrooms" element={<RequireAuth><ClassroomsPage /></RequireAuth>} />
       <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />

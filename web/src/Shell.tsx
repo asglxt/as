@@ -3,7 +3,7 @@ import {
   BarChart3, Bell, BookOpen, Boxes, Building2, CalendarDays, CheckSquare, ChevronDown,
   CircleDollarSign, ClipboardList, DoorOpen, FileSpreadsheet, GraduationCap,
   Import, LayoutDashboard, LogOut, MessageSquare, Receipt, School,
-  ShieldCheck, Undo2, Upload, Users, Wallet
+  ShieldCheck, Smartphone, Undo2, Upload, Users, Wallet
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from './auth.tsx';
@@ -150,7 +150,7 @@ export default function Shell({ children }: { children: ReactNode }) {
       <div className="workspace">
         <header className="topbar">
           <div className="breadcrumb"><span>学校管理</span><b>/</b><strong>{currentTitle}</strong></div>
-          <div className="topbar-actions"><button className="icon-button notification-button" title="通知" onClick={() => navigate('/notifications')}><Bell size={18} />{unreadCount > 0 && <span>{unreadCount > 99 ? '99+' : unreadCount}</span>}</button></div>
+          <div className="topbar-actions">{user?.role === 'teacher' && <button className="icon-button" title="手机教师端" onClick={() => navigate('/teacher/mobile')}><Smartphone size={18} /></button>}<button className="icon-button notification-button" title="通知" onClick={() => navigate('/notifications')}><Bell size={18} />{unreadCount > 0 && <span>{unreadCount > 99 ? '99+' : unreadCount}</span>}</button></div>
         </header>
         <main className="content">{children}</main>
       </div>

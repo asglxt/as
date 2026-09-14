@@ -29,6 +29,8 @@ test('trial plan creates campus classes with pinyin abbreviation and Chinese nam
       assert.equal(classItem.capacity, 20);
       assert.equal(classItem.students.length, 3);
       assert.match(classItem.name, /^[A-Z]+-\d{2}教室-[\u4e00-\u9fff]+$/);
+      assert.match(classItem.startTime, /^\d{2}:\d{2}$/);
+      assert.ok(classItem.timeSlot >= 0 && classItem.timeSlot < 5);
       for (const student of classItem.students) {
         assert.match(student.name, /^[\u4e00-\u9fff]{2,4}$/);
         assert.match(student.guardianPhone, /^1\d{10}$/);
