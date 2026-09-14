@@ -63,3 +63,66 @@ test('transfer moves student between classes', async () => {
   const oldRow = await app.pool.query('SELECT left_at FROM class_students WHERE class_id = $1 AND student_id = $2', [classId, studentId]);
   assert.ok(oldRow.rows[0].left_at);
 });
+
+test('student detail returns guardians and growth records', async () => {
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '王小明', gender: '男', birthday: '2018-01-02' }
+  });
+  assert.equal(create.statusCode, 200);
+  const detail = await app.inject({
+    method: 'GET',
+    url: `/api/students/${create.json().id}`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().student.gender, '男');
+  assert.deepEqual(detail.json().guardians, []);
+  assert.deepEqual(detail.json().growthRecords, []);
+});
+
+test('student list filters by keyword and returns pagination summary', async () => {
+  await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '张三' }
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '李四' }
+  });
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/students/list?keyword=张&page=1&pageSize=20',
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items.length, 1);
+  assert.equal(res.json().items[0].name, '张三');
+  assert.equal(res.json().total, 1);
+  assert.equal(res.json().page, 1);
+});
+
+test('batch update changes student status', async () => {
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '批量学员' }
+  });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/students/batch',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { ids: [create.json().id], status: 'inactive' }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().count, 1);
+  const row = await app.pool.query('SELECT status FROM students WHERE id = $1', [create.json().id]);
+  assert.equal(row.rows[0].status, 'inactive');
+});
