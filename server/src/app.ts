@@ -23,6 +23,7 @@ import { classroomRoutes } from './routes/classrooms.ts';
 import { scheduleRoutes } from './routes/schedules.ts';
 import { enrollmentRoutes } from './routes/enrollments.ts';
 import { attendanceRoutes } from './routes/attendance.ts';
+import { dashboardRoutes } from './routes/dashboard.ts';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -44,6 +45,7 @@ export async function buildApp() {
 
   app.get('/', async (_request, reply) => reply.redirect(`${config.webUrl}/login`));
   app.get('/api/health', async () => ({ ok: true }));
+  await app.register(dashboardRoutes, { prefix: '/api/dashboard' });
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(campusRoutes, { prefix: '/api/campuses' });
   await app.register(classRoutes, { prefix: '/api/classes' });
