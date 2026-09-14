@@ -2,6 +2,7 @@ import { parse } from 'csv-parse/sync';
 import type { FastifyInstance } from 'fastify';
 import { authGuard, requireRole } from '../auth/middleware.ts';
 import { writeAudit } from '../audit.ts';
+import { guardiansFromSchoolPalRow, mapSchoolPalStudentRow, schoolPalStudentTemplate } from '../imports/schoolpal_students.ts';
 
 type CsvRow = Record<string, string>;
 
@@ -26,8 +27,91 @@ function parseRows(csvText: string): CsvRow[] {
   return parse(csvText, { columns: true, skip_empty_lines: true, trim: true }) as CsvRow[];
 }
 
+async function resolveCampusId(app: FastifyInstance, campusName?: string) {
+  if (campusName?.trim()) {
+    const campus = (await app.pool.query('SELECT id FROM campuses WHERE name = $1', [campusName.trim()])).rows[0];
+    return campus?.id ?? null;
+  }
+  const campuses = (await app.pool.query('SELECT id FROM campuses ORDER BY id LIMIT 2')).rows;
+  return campuses.length === 1 ? campuses[0].id : null;
+}
+
+async function upsertStudentFromMappedRow(app: FastifyInstance, row: Record<string, string>, _actorId: number) {
+  const campusId = await resolveCampusId(app, row.campus_name);
+  if (!campusId) throw new Error(row.campus_name ? `校区不存在: ${row.campus_name}` : '无法确定报读校区');
+  const existing = row.student_no
+    ? (await app.pool.query('SELECT id FROM students WHERE student_no = $1', [row.student_no])).rows[0]
+    : null;
+  let studentId: number;
+  if (existing) {
+    await app.pool.query(
+      `UPDATE students SET campus_id = $1, name = $2, guardian_phone = COALESCE($3, guardian_phone),
+        gender = COALESCE($4, gender), birthday = COALESCE($5::date, birthday),
+        enrollment_date = COALESCE($6::date, enrollment_date), discount = COALESCE($7, discount),
+        source = COALESCE($8, source), notes = COALESCE($9, notes), school_name = COALESCE($10, school_name),
+        grade = COALESCE($11, grade), address = COALESCE($12, address), status = COALESCE($13, status)
+       WHERE id = $14`,
+      [campusId, row.name, row.guardian_phone || null, row.gender || null, row.birthday || null,
+       row.enrollment_date || null, row.discount || null, row.source || null, row.notes || null,
+       row.school_name || null, row.grade || null, row.address || null, row.status || null, existing.id]
+    );
+    studentId = Number(existing.id);
+  } else {
+    const inserted = await app.pool.query(
+      `INSERT INTO students (
+        campus_id, name, guardian_phone, gender, birthday, enrollment_date, discount, source, notes,
+        student_no, school_name, grade, address, status
+      ) VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,'active'))
+      RETURNING id`,
+      [campusId, row.name, row.guardian_phone || null, row.gender || null, row.birthday || null,
+       row.enrollment_date || null, row.discount || null, row.source || null, row.notes || null,
+       row.student_no || null, row.school_name || null, row.grade || null, row.address || null, row.status || null]
+    );
+    studentId = Number(inserted.rows[0].id);
+  }
+  const guardians = guardiansFromSchoolPalRow(row);
+  if (guardians.length) {
+    await app.pool.query('DELETE FROM student_guardians WHERE student_id = $1', [studentId]);
+    for (const guardian of guardians) {
+      await app.pool.query(
+        `INSERT INTO student_guardians (student_id, name, relation, phone, wechat, is_primary, is_emergency)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [studentId, guardian.name, guardian.relation, guardian.phone, guardian.wechat, guardian.isPrimary, guardian.isEmergency]
+      );
+    }
+  }
+  return studentId;
+}
+
 export async function importRoutes(app: FastifyInstance) {
   const guard = [authGuard, requireRole('admin')];
+
+  app.get('/students/template', { preHandler: guard }, async (_request, reply) => {
+    reply.header('Content-Type', 'text/csv; charset=utf-8');
+    reply.header('Content-Disposition', 'attachment; filename="schoolpal-students-template.csv"');
+    return `\ufeff${schoolPalStudentTemplate()}`;
+  });
+
+  app.post('/students/preview', { preHandler: guard }, async (request, reply) => {
+    const body = request.body as { csv?: string };
+    if (!body.csv) return reply.code(400).send({ error: 'csv required' });
+    const rows = parseRows(body.csv);
+    const mappedRows = rows.map(mapSchoolPalStudentRow);
+    const errors: Array<{ row: number; column: string; message: string }> = [];
+    for (const [index, row] of mappedRows.entries()) {
+      if (!row.name) errors.push({ row: index + 2, column: 'name', message: '姓名不能为空' });
+      if (!row.campus_name) errors.push({ row: index + 2, column: 'campus_name', message: '报读校区不能为空' });
+    }
+    const errorRows = new Set(errors.map((error) => error.row)).size;
+    return {
+      total_rows: rows.length,
+      valid_rows: rows.length - errorRows,
+      error_rows: errorRows,
+      errors,
+      mapped_headers: [...new Set(mappedRows.flatMap((row) => Object.keys(row)))],
+      preview: mappedRows.slice(0, 10)
+    };
+  });
 
   app.post('/students', { preHandler: guard }, async (request, reply) => {
     const body = request.body as { csv?: string };
@@ -35,23 +119,20 @@ export async function importRoutes(app: FastifyInstance) {
     const rows = parseRows(body.csv);
     const errors: Array<{ row: number; column: string; message: string }> = [];
     let valid = 0;
-    for (const [index, row] of rows.entries()) {
+    for (const [index, sourceRow] of rows.entries()) {
       const line = index + 2;
-      const name = row.name?.trim();
-      const campusName = row.campus_name?.trim();
-      if (!name) {
+      const row = mapSchoolPalStudentRow(sourceRow);
+      if (!row.name) {
         errors.push({ row: line, column: 'name', message: '姓名不能为空' });
         continue;
       }
-      const campus = (await app.pool.query('SELECT id FROM campuses WHERE name = $1', [campusName])).rows[0];
-      if (!campus) {
-        errors.push({ row: line, column: 'campus_name', message: `校区不存在: ${campusName}` });
+      try {
+        await upsertStudentFromMappedRow(app, row, request.user!.id);
+        valid += 1;
+      } catch (error: any) {
+        errors.push({ row: line, column: 'campus_name', message: error.message });
         continue;
       }
-      await app.pool.query('INSERT INTO students (campus_id, name, guardian_phone) VALUES ($1, $2, $3)', [
-        campus.id, name, row.guardian_phone ?? null
-      ]);
-      valid += 1;
     }
     const job = await saveJob(app, request.user!.id, 'students', rows.length, errors.length, errors);
     return { ...job, imported_rows: valid };

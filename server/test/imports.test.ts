@@ -37,6 +37,48 @@ test('import reports row errors for missing campus', async () => {
   assert.equal(res.json().errors[0].column, 'campus_name');
 });
 
+test('imports SchoolPal Chinese export headers and detailed guardian fields', async () => {
+  const csv = [
+    '学员姓名,学员编号,性别,生日,报读校区,就读学校,年级,家庭住址,联系电话,父亲姓名,父亲电话,母亲姓名,母亲电话',
+    '校宝学员,SP2026001,男,2018-03-02,测试校区,实验小学,三年级,幸福路88号,13800000000,王爸爸,13800000001,李妈妈,13800000002'
+  ].join('\n');
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/imports/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { csv }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().imported_rows, 1);
+  const student = await app.pool.query('SELECT * FROM students WHERE student_no = $1', ['SP2026001']);
+  assert.equal(student.rows[0].school_name, '实验小学');
+  assert.equal(student.rows[0].grade, '三年级');
+  assert.equal(student.rows[0].address, '幸福路88号');
+  const guardians = await app.pool.query('SELECT * FROM student_guardians WHERE student_id = $1 ORDER BY id', [student.rows[0].id]);
+  assert.equal(guardians.rowCount, 2);
+  assert.equal(guardians.rows[0].relation, '父亲');
+  assert.equal(guardians.rows[0].phone, '13800000001');
+  assert.equal(guardians.rows[1].relation, '母亲');
+});
+
+test('previews SchoolPal student columns before import', async () => {
+  const csv = [
+    '学员姓名,报读校区,就读学校,家庭住址',
+    '预览学员,测试校区,实验小学,幸福路1号'
+  ].join('\n');
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/imports/students/preview',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { csv }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().total_rows, 1);
+  assert.equal(res.json().valid_rows, 1);
+  assert.ok(res.json().mapped_headers.includes('school_name'));
+  assert.equal(res.json().preview[0].name, '预览学员');
+});
+
 test('import jobs are listed and queryable', async () => {
   const created = await app.inject({
     method: 'POST',
