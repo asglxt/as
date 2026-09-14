@@ -23,7 +23,7 @@ async function main() {
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0 };
+  const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0, parents: 0 };
 
   const client = await pool.connect();
   try {
@@ -163,6 +163,23 @@ async function main() {
           summary.students += 1;
         }
       }
+
+      const campusStudents = (await client.query(
+        "SELECT id FROM students WHERE campus_id=$1 AND notes LIKE 'TRIAL_SEED_V1:%' ORDER BY id LIMIT 2",
+        [campus.campusId]
+      )).rows.map((row) => Number(row.id));
+      const parent = await client.query(
+        `INSERT INTO users (username,password_hash,display_name,role,campus_id,employment_status)
+         VALUES ($1,$2,$3,'parent',$4,'active')
+         ON CONFLICT (username) DO UPDATE SET password_hash=EXCLUDED.password_hash,display_name=EXCLUDED.display_name,
+           role='parent',campus_id=EXCLUDED.campus_id
+         RETURNING id`,
+        [`trial_${campus.campusCode.toLowerCase()}_parent`, passwordHash, `${campus.campusName}试用家长`, campus.campusId]
+      );
+      for (const studentId of campusStudents) {
+        await client.query('INSERT INTO parent_bindings (parent_user_id,student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [parent.rows[0].id, studentId]);
+      }
+      summary.parents += 1;
     }
     await client.query('COMMIT');
     console.log(JSON.stringify({ ok: true, teacherPassword, summary, plan: config }, null, 2));

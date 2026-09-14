@@ -27,6 +27,7 @@ import { dashboardRoutes } from './routes/dashboard.ts';
 import { notificationRoutes } from './routes/notifications.ts';
 import { materialRoutes } from './routes/materials.ts';
 import { teacherMobileRoutes } from './routes/teacher-mobile.ts';
+import { parentMobileRoutes } from './routes/parent-mobile.ts';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -72,6 +73,7 @@ export async function buildApp() {
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
   await app.register(materialRoutes, { prefix: '/api/materials' });
   await app.register(teacherMobileRoutes, { prefix: '/api/teacher-mobile' });
+  await app.register(parentMobileRoutes, { prefix: '/api/parent-mobile' });
 
   return app;
 }

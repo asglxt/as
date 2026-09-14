@@ -13,7 +13,7 @@ export default function LoginPage() {
     e.preventDefault();
     try {
       const user = await login(username, password);
-      navigate(user.role === 'teacher' ? '/teacher/mobile' : '/dashboard');
+      navigate(user.role === 'teacher' ? '/teacher/mobile' : user.role === 'parent' ? '/parent/mobile' : '/dashboard');
     } catch (err: any) {
       setError(err.message);
     }
