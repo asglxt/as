@@ -4,6 +4,7 @@ import { useAuth } from './auth.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
 import StudentsPage from './pages/StudentsPage.tsx';
+import StudentDetailPage from './pages/StudentDetailPage.tsx';
 import ClassesPage from './pages/ClassesPage.tsx';
 import ImportPage from './pages/ImportPage.tsx';
 import MyScoresPage from './pages/MyScoresPage.tsx';
@@ -36,6 +37,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
       <Route path="/students" element={<RequireAuth><StudentsPage /></RequireAuth>} />
+      <Route path="/students/:id" element={<RequireAuth><StudentDetailPage /></RequireAuth>} />
       <Route path="/classes" element={<RequireAuth><ClassesPage /></RequireAuth>} />
       <Route path="/scores" element={<RequireAuth><ScoresPage /></RequireAuth>} />
       <Route path="/comments" element={<RequireAuth><CommentsPage /></RequireAuth>} />
