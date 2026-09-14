@@ -55,6 +55,18 @@ test('today list shows pending schedule', async () => {
   assert.equal(res.json()[0].class_name, 'G3D');
 });
 
+test('attendance list filters schedule status and returns summary', async () => {
+  const res = await app.inject({
+    method: 'GET', url: '/api/attendance/list?date=2026-09-15&status=pending&page=1&pageSize=20',
+    headers: { authorization: `Bearer ${seed.teacherToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items.length, 1);
+  assert.equal(res.json().items[0].class_name, 'G3D');
+  assert.equal(res.json().summary.pending, 1);
+  assert.equal(res.json().summary.recorded, 0);
+});
+
 test('record attendance deducts hours and writes transaction', async () => {
   const res = await app.inject({
     method: 'POST', url: `/api/attendance/record/${scheduleId}`,

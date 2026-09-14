@@ -27,6 +27,57 @@ export async function attendanceRoutes(app: FastifyInstance) {
     )).rows;
   });
 
+  app.get('/list', { preHandler: guard }, async (request) => {
+    const user = request.user!;
+    const query = request.query as {
+      date?: string; keyword?: string; campusId?: string; teacherId?: string;
+      classroomId?: string; lessonId?: string; status?: string; page?: string; pageSize?: string;
+    };
+    const date = query.date ?? new Date().toISOString().slice(0, 10);
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 50)));
+    const params: unknown[] = [date];
+    const where: string[] = ["s.schedule_date = $1::date", "s.status = 'normal'"];
+    if (user.role === 'teacher') { params.push(user.id); where.push(`s.teacher_id = $${params.length}`); }
+    else if (query.teacherId) { params.push(Number(query.teacherId)); where.push(`s.teacher_id = $${params.length}`); }
+    if (query.campusId) { params.push(Number(query.campusId)); where.push(`s.campus_id = $${params.length}`); }
+    if (query.classroomId) { params.push(Number(query.classroomId)); where.push(`s.classroom_id = $${params.length}`); }
+    if (query.lessonId) { params.push(Number(query.lessonId)); where.push(`c.lesson_id = $${params.length}`); }
+    if (query.keyword?.trim()) { params.push(`%${query.keyword.trim()}%`); where.push(`c.name ILIKE $${params.length}`); }
+    if (query.status === 'pending') where.push('s.is_recorded = false');
+    if (query.status === 'recorded') where.push('s.is_recorded = true');
+    const baseWhere = where.join(' AND ');
+    const summary = (await app.pool.query(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE s.is_recorded = false)::int AS pending,
+              COUNT(*) FILTER (WHERE s.is_recorded = true)::int AS recorded
+       FROM schedules s JOIN classes c ON c.id = s.class_id WHERE ${baseWhere}`,
+      params
+    )).rows[0];
+    const items = (await app.pool.query(
+      `SELECT s.id AS schedule_id, s.schedule_date, s.start_time, s.end_time, s.is_recorded,
+              c.id AS class_id, c.name AS class_name, l.name AS lesson_name,
+              u.display_name AS teacher_name, r.name AS classroom_name, camp.name AS campus_name,
+              (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id AND cs.left_at IS NULL)::int AS student_count
+       FROM schedules s
+       JOIN classes c ON c.id = s.class_id
+       LEFT JOIN lessons l ON l.id = c.lesson_id
+       LEFT JOIN users u ON u.id = s.teacher_id
+       LEFT JOIN classrooms r ON r.id = s.classroom_id
+       JOIN campuses camp ON camp.id = s.campus_id
+       WHERE ${baseWhere}
+       ORDER BY s.start_time, c.name
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]
+    )).rows.map((row) => ({ ...row, schedule_id: Number(row.schedule_id), class_id: Number(row.class_id), student_count: Number(row.student_count) }));
+    return {
+      items,
+      total: Number(summary.total),
+      page,
+      pageSize,
+      summary: { total: Number(summary.total), pending: Number(summary.pending), recorded: Number(summary.recorded) }
+    };
+  });
+
   app.get('/students/:scheduleId', { preHandler: guard }, async (request) => {
     const scheduleId = Number((request.params as { scheduleId: string }).scheduleId);
     return (await app.pool.query(
