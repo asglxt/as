@@ -1,4 +1,4 @@
-<#
+﻿<#
 把本仓库推送到 GitHub（交互式，双击 push-to-github.cmd 也可以运行）。
 #>
 param(
