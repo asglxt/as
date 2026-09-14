@@ -71,3 +71,46 @@ test('assignment records lesson and teacher', async () => {
   assert.equal(Number(row.rows[0].lesson_id), Number(lesson.rows[0].id));
   assert.equal(row.rows[0].status, 'active');
 });
+
+test('class list returns filters and summary statistics', async () => {
+  const teacherId = (await app.pool.query("SELECT id FROM users WHERE username = 'teacher'")).rows[0].id;
+  const created = await app.inject({
+    method: 'POST', url: '/api/classes',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '列表测试班', subject: '英语', grade: '三年级', teacherId, capacity: 16, recruitStatus: 'recruiting' }
+  });
+  const student = await app.pool.query("INSERT INTO students (campus_id, name) VALUES ($1, '班级学员') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id, student_id) VALUES ($1, $2)', [created.json().id, student.rows[0].id]);
+  const res = await app.inject({
+    method: 'GET', url: `/api/classes/list?keyword=${encodeURIComponent('列表测试班')}&campusId=${seed.campusId}&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items[0].name, '列表测试班');
+  assert.equal(res.json().summary.classes, 1);
+  assert.equal(res.json().summary.students, 1);
+});
+
+test('class batch assignment adds multiple students and remove closes membership', async () => {
+  const teacherId = (await app.pool.query("SELECT id FROM users WHERE username = 'teacher'")).rows[0].id;
+  const cls = await app.pool.query(
+    "INSERT INTO classes (campus_id, name, subject, grade, teacher_id) VALUES ($1,'批量分班班','英语','三年级',$2) RETURNING id",
+    [seed.campusId, teacherId]
+  );
+  const students = await app.pool.query("INSERT INTO students (campus_id, name) VALUES ($1,'批量一'),($1,'批量二') RETURNING id", [seed.campusId]);
+  const ids = students.rows.map((row) => Number(row.id));
+  const assign = await app.inject({
+    method: 'POST', url: `/api/classes/${cls.rows[0].id}/students/batch`,
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { studentIds: ids }
+  });
+  assert.equal(assign.statusCode, 200);
+  assert.equal(assign.json().count, 2);
+  const remove = await app.inject({
+    method: 'DELETE', url: `/api/classes/${cls.rows[0].id}/students/${ids[0]}`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(remove.statusCode, 200);
+  const memberships = await app.pool.query('SELECT * FROM class_students WHERE class_id = $1 ORDER BY student_id', [cls.rows[0].id]);
+  assert.equal(memberships.rows.filter((row) => row.left_at === null).length, 1);
+});
