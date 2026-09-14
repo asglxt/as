@@ -3,11 +3,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 export type ModuleKey =
   | 'dashboard' | 'students' | 'classes' | 'lessons' | 'schedules'
   | 'attendance' | 'enrollments' | 'classrooms' | 'org' | 'employees' | 'roles'
-  | 'scores' | 'comments' | 'homework' | 'finance' | 'report';
+  | 'scores' | 'comments' | 'homework' | 'finance' | 'report' | 'notifications';
 
 export const ALL_MODULES: ModuleKey[] = [
   'dashboard', 'students', 'classes', 'lessons', 'schedules',
-  'attendance', 'enrollments', 'classrooms', 'org', 'employees', 'roles'
+  'attendance', 'enrollments', 'classrooms', 'org', 'employees', 'roles', 'notifications'
 ];
 
 export const PERMISSION_GROUPS = [
@@ -56,7 +56,8 @@ export const PERMISSION_GROUPS = [
     modules: [
       { key: 'org', label: '组织架构' },
       { key: 'employees', label: '员工' },
-      { key: 'roles', label: '角色权限' }
+      { key: 'roles', label: '角色权限' },
+      { key: 'notifications', label: '通知公告' }
     ]
   }
 ] as const;

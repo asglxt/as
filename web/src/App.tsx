@@ -25,9 +25,11 @@ import RefundPage from './pages/RefundPage.tsx';
 import MyOrdersPage from './pages/MyOrdersPage.tsx';
 import ReportsPage from './pages/ReportsPage.tsx';
 import CampusesPage from './pages/CampusesPage.tsx';
+import NotificationsPage from './pages/NotificationsPage.tsx';
 
 function RequireAuth({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <div className="page-loading">正在加载...</div>;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
@@ -54,6 +56,7 @@ export default function App() {
       <Route path="/my-scores" element={<RequireAuth><MyScoresPage /></RequireAuth>} />
       <Route path="/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
       <Route path="/campuses" element={<RequireAuth><CampusesPage /></RequireAuth>} />
+      <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
       <Route path="/lessons" element={<RequireAuth><LessonsPage /></RequireAuth>} />
       <Route path="/classrooms" element={<RequireAuth><ClassroomsPage /></RequireAuth>} />
       <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />

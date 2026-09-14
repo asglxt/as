@@ -11,6 +11,7 @@ export interface User {
 
 interface AuthState {
   user: User | null;
+  loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -28,16 +29,21 @@ async function withPermissions(user: User): Promise<User> {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     api<User>('/api/auth/me')
       .then((me) => withPermissions(me))
       .then(setUser)
       .catch(() => {
         localStorage.removeItem('token');
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function login(username: string, password: string) {
@@ -54,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

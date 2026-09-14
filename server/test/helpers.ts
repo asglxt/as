@@ -12,7 +12,7 @@ export async function setupApp() {
 
 export async function seedBase(app: Awaited<ReturnType<typeof setupApp>>) {
   await app.pool.query(
-    'TRUNCATE student_growth_records, student_guardians, parent_bindings, import_jobs, audit_logs, payments, refunds, account_transactions, student_accounts, order_items, orders, fee_items, homework_records, homework, teaching_comments, comment_templates, attendance_records, teaching_logs, hour_transactions, enrollments, student_scores, exam_projects, exams, schedules, classrooms, lesson_upgrades, lessons, lesson_categories, subjects, class_students, classes, users, students, campuses RESTART IDENTITY CASCADE'
+    'TRUNCATE notification_recipients, notification_classes, notifications, notification_templates, student_growth_records, student_guardians, parent_bindings, import_jobs, audit_logs, payments, refunds, account_transactions, student_accounts, order_items, orders, fee_items, homework_records, homework, teaching_comments, comment_templates, attendance_records, teaching_logs, hour_transactions, enrollments, student_scores, exam_projects, exams, schedules, classrooms, lesson_upgrades, lessons, lesson_categories, subjects, class_students, classes, users, students, campuses RESTART IDENTITY CASCADE'
   );
   await app.pool.query('DELETE FROM roles WHERE is_preset = false');
   await app.pool.query("INSERT INTO exam_projects (name, sort) VALUES ('单元测评', 1) ON CONFLICT (name) DO NOTHING");

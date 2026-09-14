@@ -1,12 +1,13 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3, Bell, BookOpen, Building2, CalendarDays, CheckSquare, ChevronDown,
   CircleDollarSign, ClipboardList, DoorOpen, FileSpreadsheet, GraduationCap,
   Import, LayoutDashboard, LogOut, MessageSquare, Receipt, School,
   ShieldCheck, Undo2, Upload, Users, Wallet
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from './auth.tsx';
+import { api } from './api.ts';
 
 type NavItem = { to: string; label: string; icon: ReactNode; module?: string };
 type NavGroup = { key: string; label: string; items: NavItem[] };
@@ -17,12 +18,15 @@ const PAGE_TITLES: Record<string, string> = {
   '/scores': '成绩', '/comments': '课堂点评', '/homework': '作业', '/orders': '订单',
   '/accounts': '学员账户', '/refunds': '退费', '/reports': '报表', '/import': '导入',
   '/roles': '角色权限', '/campuses': '校区设置'
+  , '/notifications': '通知公告'
 };
 
 export default function Shell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const [openGroup, setOpenGroup] = useState<string>('');
+  const [unreadCount, setUnreadCount] = useState(0);
   const isStaff = user?.role === 'admin' || user?.role === 'teacher';
   const can = (key?: string) => !key || user?.role === 'admin' || (user?.modules ?? []).includes(key);
 
@@ -66,7 +70,8 @@ export default function Shell({ children }: { children: ReactNode }) {
     {
       key: 'internal', label: '内部管理', items: [
         { to: '/roles', label: '角色与员工', icon: <ShieldCheck size={17} />, module: 'roles' },
-        { to: '/campuses', label: '校区设置', icon: <Building2 size={17} />, module: 'org' }
+        { to: '/campuses', label: '校区设置', icon: <Building2 size={17} />, module: 'org' },
+        { to: '/notifications', label: '通知公告', icon: <Bell size={17} />, module: 'notifications' }
       ]
     }
   ], []);
@@ -78,6 +83,12 @@ export default function Shell({ children }: { children: ReactNode }) {
   const activeGroup = visibleGroups.find((group) => group.items.some((item) => location.pathname.startsWith(item.to)));
   const currentGroupKey = openGroup || activeGroup?.key || 'workbench';
   const currentTitle = PAGE_TITLES[location.pathname] ?? (location.pathname.startsWith('/students/') ? '学员详情' : '学校管理');
+
+  useEffect(() => {
+    api<{ count: number }>('/api/notifications/unread-count')
+      .then((result) => setUnreadCount(Number(result.count)))
+      .catch(() => setUnreadCount(0));
+  }, [location.pathname, user?.id]);
 
   return (
     <div className="app-shell">
@@ -114,6 +125,7 @@ export default function Shell({ children }: { children: ReactNode }) {
               <NavLink to="/my-comments"><MessageSquare size={17} />孩子点评</NavLink>
               <NavLink to="/my-homework"><ClipboardList size={17} />孩子作业</NavLink>
               <NavLink to="/my-orders"><Receipt size={17} />孩子订单</NavLink>
+              <NavLink to="/notifications"><Bell size={17} />通知公告</NavLink>
             </div>
           )}
           {user?.role === 'student' && (
@@ -122,6 +134,7 @@ export default function Shell({ children }: { children: ReactNode }) {
               <NavLink to="/my-comments"><MessageSquare size={17} />我的点评</NavLink>
               <NavLink to="/my-homework"><ClipboardList size={17} />我的作业</NavLink>
               <NavLink to="/my-orders"><Receipt size={17} />我的订单</NavLink>
+              <NavLink to="/notifications"><Bell size={17} />通知公告</NavLink>
             </div>
           )}
         </nav>
@@ -136,7 +149,7 @@ export default function Shell({ children }: { children: ReactNode }) {
       <div className="workspace">
         <header className="topbar">
           <div className="breadcrumb"><span>学校管理</span><b>/</b><strong>{currentTitle}</strong></div>
-          <div className="topbar-actions"><button className="icon-button" title="通知"><Bell size={18} /></button></div>
+          <div className="topbar-actions"><button className="icon-button notification-button" title="通知" onClick={() => navigate('/notifications')}><Bell size={18} />{unreadCount > 0 && <span>{unreadCount > 99 ? '99+' : unreadCount}</span>}</button></div>
         </header>
         <main className="content">{children}</main>
       </div>
