@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  BarChart3, Bell, BookOpen, CalendarDays, CheckSquare, ChevronDown,
+  BarChart3, Bell, BookOpen, Building2, CalendarDays, CheckSquare, ChevronDown,
   CircleDollarSign, ClipboardList, DoorOpen, FileSpreadsheet, GraduationCap,
   Import, LayoutDashboard, LogOut, MessageSquare, Receipt, School,
   ShieldCheck, Undo2, Upload, Users, Wallet
@@ -16,7 +16,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/classrooms': '教室', '/schedules': '排课', '/enrollments': '报读', '/attendance': '记上课',
   '/scores': '成绩', '/comments': '课堂点评', '/homework': '作业', '/orders': '订单',
   '/accounts': '学员账户', '/refunds': '退费', '/reports': '报表', '/import': '导入',
-  '/roles': '角色权限'
+  '/roles': '角色权限', '/campuses': '校区设置'
 };
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -65,7 +65,8 @@ export default function Shell({ children }: { children: ReactNode }) {
     },
     {
       key: 'internal', label: '内部管理', items: [
-        { to: '/roles', label: '角色与员工', icon: <ShieldCheck size={17} />, module: 'roles' }
+        { to: '/roles', label: '角色与员工', icon: <ShieldCheck size={17} />, module: 'roles' },
+        { to: '/campuses', label: '校区设置', icon: <Building2 size={17} />, module: 'org' }
       ]
     }
   ], []);

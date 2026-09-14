@@ -24,6 +24,7 @@ import AccountsPage from './pages/AccountsPage.tsx';
 import RefundPage from './pages/RefundPage.tsx';
 import MyOrdersPage from './pages/MyOrdersPage.tsx';
 import ReportsPage from './pages/ReportsPage.tsx';
+import CampusesPage from './pages/CampusesPage.tsx';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -52,6 +53,7 @@ export default function App() {
       <Route path="/import" element={<RequireAuth><ImportPage /></RequireAuth>} />
       <Route path="/my-scores" element={<RequireAuth><MyScoresPage /></RequireAuth>} />
       <Route path="/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
+      <Route path="/campuses" element={<RequireAuth><CampusesPage /></RequireAuth>} />
       <Route path="/lessons" element={<RequireAuth><LessonsPage /></RequireAuth>} />
       <Route path="/classrooms" element={<RequireAuth><ClassroomsPage /></RequireAuth>} />
       <Route path="/schedules" element={<RequireAuth><SchedulesPage /></RequireAuth>} />
