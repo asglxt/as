@@ -42,6 +42,7 @@ export async function buildApp() {
   app.decorate('pool', pool);
   await app.register(cors, { origin: true });
 
+  app.get('/', async (_request, reply) => reply.redirect(`${config.webUrl}/login`));
   app.get('/api/health', async () => ({ ok: true }));
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(campusRoutes, { prefix: '/api/campuses' });

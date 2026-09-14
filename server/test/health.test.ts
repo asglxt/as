@@ -9,3 +9,19 @@ test('GET /api/health returns ok', async () => {
   assert.deepEqual(res.json(), { ok: true });
   await app.close();
 });
+
+test('GET / redirects to the Web login page', async () => {
+  const previousWebUrl = process.env.WEB_URL;
+  process.env.WEB_URL = 'http://localhost:5173';
+  const app = await setupApp();
+
+  try {
+    const res = await app.inject({ method: 'GET', url: '/' });
+    assert.equal(res.statusCode, 302);
+    assert.equal(res.headers.location, 'http://localhost:5173/login');
+  } finally {
+    await app.close();
+    if (previousWebUrl === undefined) delete process.env.WEB_URL;
+    else process.env.WEB_URL = previousWebUrl;
+  }
+});
