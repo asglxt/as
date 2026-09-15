@@ -8,9 +8,18 @@ let targetId = 0;
 let projectId = 0;
 let examIds: number[] = [];
 let classId = 0;
+let sourceIds: number[] = [];
 
 beforeEach(async () => {
   seed = await seedBase(app);
+  const sources = await app.pool.query(
+    `SELECT parent.slug, child.id FROM score_sources child JOIN score_sources parent ON parent.id=child.parent_id
+     WHERE (parent.slug='institution' AND child.name='月考')
+        OR (parent.slug='school' AND child.name='单元考试')
+        OR (parent.slug='third_party' AND child.name='等级考试')`
+  );
+  const sourceBySlug = new Map(sources.rows.map((row) => [row.slug, Number(row.id)]));
+  sourceIds = ['institution', 'school', 'third_party'].map((slug) => sourceBySlug.get(slug)!);
   const project = await app.pool.query("INSERT INTO exam_projects (name,sort) VALUES ('成长测评',1) RETURNING id");
   projectId = Number(project.rows[0].id);
   const exams = await app.pool.query("INSERT INTO exams (name,sort) VALUES ('第一次',1),('第二次',2),('第三次',3) RETURNING id");
@@ -36,9 +45,9 @@ beforeEach(async () => {
   for (const [studentId, scores, scoreClassId] of scoreSets) {
     for (let index = 0; index < scores.length; index += 1) {
       await app.pool.query(
-        `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,exam_date,created_by)
-         VALUES ($1,$2,$3,$4,$5,'teacher',$6,(SELECT id FROM users WHERE username='teacher'))`,
-        [studentId, projectId, examIds[index], scoreClassId, String(scores[index]), `2026-0${index + 1}-10`]
+        `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,source_id,exam_date,created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT id FROM users WHERE username='teacher'))`,
+        [studentId, projectId, examIds[index], scoreClassId, String(scores[index]), ['teacher', 'import', 'registration'][index], sourceIds[index], `2026-0${index + 1}-10`]
       );
     }
   }
@@ -53,6 +62,7 @@ test('student score analytics calculates growth, class rank and institution rank
   assert.equal(res.json().history[2].institution_rank, 2);
   assert.equal(res.json().history[2].institution_size, 4);
   assert.equal(res.json().history[2].delta, 9);
+  assert.deepEqual([...new Set(res.json().history.map((item: any) => item.source_parent_slug))], ['institution', 'school', 'third_party']);
   assert.equal(res.json().summary.trend, 'up');
   assert.equal(res.json().summary.change, 9);
   assert.equal(res.json().summary.class_rank, 1);

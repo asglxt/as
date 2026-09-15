@@ -102,11 +102,15 @@ export async function scoreRoutes(app: FastifyInstance) {
     else { params.push(studentId); where.push(`ss.student_id = $${params.length}`); }
     const rows = (await app.pool.query(
       `SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date::text AS exam_date,ss.score,ss.remark,ss.source,
-              p.name AS project_name,e.name AS exam_name,c.id AS class_id,c.name AS class_name,c.grade
+              p.name AS project_name,e.name AS exam_name,c.id AS class_id,c.name AS class_name,c.grade,
+              child.id AS source_id,child.name AS source_name,parent.slug AS source_parent_slug,parent.name AS source_parent_name,
+              CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
        FROM student_scores ss
        JOIN exam_projects p ON p.id=ss.project_id
        JOIN exams e ON e.id=ss.exam_id
        LEFT JOIN classes c ON c.id=ss.class_id
+       LEFT JOIN score_sources child ON child.id=ss.source_id
+       LEFT JOIN score_sources parent ON parent.id=child.parent_id
        WHERE ${where.join(' AND ')}`,
       params
     )).rows;
