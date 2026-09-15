@@ -4,8 +4,7 @@ import Shell from '../Shell.tsx';
 import { api, getToken } from '../api.ts';
 import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
 
-const TABS = [['entry', '成绩管理'], ['analytics', '成绩分析'], ['ratings', '班级评级'], ['query', '成绩查询'], ['projects', '项目设置'], ['exams', '考试设置']] as const;
-const SOURCES = [['teacher', '机构内'], ['registration', '报名成绩'], ['import', '导入']] as const;
+const TABS = [['entry', '成绩管理'], ['analytics', '成绩分析'], ['ratings', '班级评级'], ['query', '成绩查询'], ['sources', '来源设置'], ['projects', '项目设置'], ['exams', '考试设置']] as const;
 
 interface RosterGroup {
   classId: number;
@@ -19,7 +18,7 @@ export default function ScoresPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [exams, setExams] = useState<any[]>([]);
   const [roster, setRoster] = useState<RosterGroup[]>([]);
-  const [entry, setEntry] = useState({ classIds: [] as number[], projectId: '', examId: '', examDate: new Date().toISOString().slice(0, 10), source: 'teacher' });
+  const [entry, setEntry] = useState({ classIds: [] as number[], projectId: '', examId: '', examDate: new Date().toISOString().slice(0, 10), sourceId: '' });
   const [values, setValues] = useState<Record<string, { score: string; remark: string }>>({});
   const [filters, setFilters] = useState({ classId: '', projectId: '', examId: '', start: '', end: '' });
   const [rows, setRows] = useState<any[]>([]);
@@ -30,11 +29,14 @@ export default function ScoresPage() {
   const [analyticsStudentId, setAnalyticsStudentId] = useState('');
   const [ratings, setRatings] = useState<any>({ rows: [], summary: { total: 0, s: 0, a: 0, qihang: 0 } });
   const [ratingClassId, setRatingClassId] = useState('');
+  const [sources, setSources] = useState<any[]>([]);
+  const [sourceForm, setSourceForm] = useState({ parentId: '', name: '' });
 
   async function loadDicts() {
-    const [projectList, examList] = await Promise.all([api<any[]>('/api/scores/projects'), api<any[]>('/api/scores/exams')]);
+    const [projectList, examList, sourceList] = await Promise.all([api<any[]>('/api/scores/projects'), api<any[]>('/api/scores/exams'), api<any[]>('/api/scores/sources')]);
     setProjects(projectList);
     setExams(examList);
+    setSources(sourceList);
   }
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function ScoresPage() {
         }));
         const result = await api<{ count: number }>('/api/scores/bulk', {
           method: 'POST',
-          body: JSON.stringify({ classId: group.classId, projectId: Number(entry.projectId), examId: Number(entry.examId), examDate: entry.examDate, source: entry.source, scores })
+          body: JSON.stringify({ classId: group.classId, projectId: Number(entry.projectId), examId: Number(entry.examId), examDate: entry.examDate, source: 'teacher', sourceId: entry.sourceId ? Number(entry.sourceId) : null, scores })
         });
         count += result.count;
       }
@@ -123,6 +125,31 @@ export default function ScoresPage() {
     await loadDicts();
   }
 
+  async function createSource(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await api('/api/scores/sources', { method: 'POST', body: JSON.stringify({ parentId: Number(sourceForm.parentId), name: sourceForm.name }) });
+      setSourceForm({ parentId: '', name: '' });
+      setMessage('成绩来源已新增');
+      await loadDicts();
+    } catch (err: any) { setMessage(err.message); }
+  }
+
+  async function toggleSource(item: any) {
+    try {
+      await api(`/api/scores/sources/${item.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !item.enabled }) });
+      await loadDicts();
+    } catch (err: any) { setMessage(err.message); }
+  }
+
+  async function deleteSource(item: any) {
+    try {
+      await api(`/api/scores/sources/${item.id}`, { method: 'DELETE' });
+      setMessage('成绩来源已删除');
+      await loadDicts();
+    } catch (err: any) { setMessage(err.message); }
+  }
+
 
   return (
     <Shell>
@@ -133,7 +160,7 @@ export default function ScoresPage() {
       {tab === 'entry' && (
         <div className="panel">
           <div className="form-row">
-            <label>来源<select value={entry.source} onChange={(e) => setEntry({ ...entry, source: e.target.value })}>{SOURCES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label>成绩来源<select value={entry.sourceId} onChange={(e) => setEntry({ ...entry, sourceId: e.target.value })}><option value="">选择来源</option>{sources.map((root) => <optgroup key={root.id} label={root.name}>{root.children.filter((child: any) => child.enabled).map((child: any) => <option key={child.id} value={child.id}>{child.name}</option>)}</optgroup>)}</select></label>
             <label>项目<select value={entry.projectId} onChange={(e) => setEntry({ ...entry, projectId: e.target.value })}><option value="">选择项目</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label>考试日期<input type="date" value={entry.examDate} onChange={(e) => setEntry({ ...entry, examDate: e.target.value })} /></label>
             <label>考试<select value={entry.examId} onChange={(e) => setEntry({ ...entry, examId: e.target.value })}><option value="">选择考试</option>{exams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -170,7 +197,7 @@ export default function ScoresPage() {
             <button className="btn icon-text" type="button" onClick={exportCsv}><Download size={15} />导出</button>
           </form>
           <div className="summary-strip"><span>当前结果 <b>{total}</b> 条</span></div>
-          <div className="table-wrap"><table className="table"><thead><tr><th>学员</th><th>项目</th><th>考试</th><th>班级</th><th>成绩</th><th>考试日期</th><th>来源</th><th>备注</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.student_name}</td><td>{row.project_name}</td><td>{row.exam_name}</td><td>{row.class_name ?? '-'}</td><td><b>{row.score ?? '未考'}</b></td><td>{String(row.exam_date).slice(0, 10)}</td><td>{row.source}</td><td>{row.remark ?? '-'}</td></tr>)}</tbody></table></div>
+          <div className="table-wrap"><table className="table"><thead><tr><th>学员</th><th>项目</th><th>考试</th><th>班级</th><th>成绩</th><th>考试日期</th><th>来源</th><th>备注</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.student_name}</td><td>{row.project_name}</td><td>{row.exam_name}</td><td>{row.class_name ?? '-'}</td><td><b>{row.score ?? '未考'}</b></td><td>{String(row.exam_date).slice(0, 10)}</td><td>{row.source_path ?? row.source}</td><td>{row.remark ?? '-'}</td></tr>)}</tbody></table></div>
         </div>
       )}
 
@@ -186,6 +213,21 @@ export default function ScoresPage() {
           <div className="panel-header"><h2>班级考试评级</h2><select className="btn" value={ratingClassId} onChange={(e) => setRatingClassId(e.target.value)}><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
           <div className="cards"><div className="stat-card"><b>{ratings.summary.s}</b><span>S班次数</span></div><div className="stat-card"><b>{ratings.summary.a}</b><span>A+班次数</span></div><div className="stat-card"><b>{ratings.summary.qihang}</b><span>启航班次数</span></div></div>
           <div className="table-wrap"><table className="table"><thead><tr><th>考试日期</th><th>班级</th><th>项目/考试</th><th>平均分</th><th>评级</th><th>最高分</th><th>最低分</th><th>参考人数</th><th>任课教师</th></tr></thead><tbody>{ratings.rows.map((row: any) => <tr key={`${row.class_id}-${row.project_id}-${row.exam_id}-${row.exam_date}`}><td>{String(row.exam_date).slice(0, 10)}</td><td><b>{row.class_name}</b><div className="subtitle">{row.grade}</div></td><td>{row.project_name}<div className="subtitle">{row.exam_name}</div></td><td><b>{Number(row.average_score).toFixed(2)}</b></td><td><span className={`badge ${row.rating === 'S班' ? 'green' : row.rating === 'A+班' ? 'blue' : 'orange'}`}>{row.rating}</span></td><td>{row.max_score}</td><td>{row.min_score}</td><td>{row.participant_count}</td><td>{row.teacher_name ?? '-'}</td></tr>)}{ratings.rows.length === 0 && <tr><td colSpan={9}><div className="empty-state"><BarChart3 size={28} /><p>暂无可评级的成绩数据</p></div></td></tr>}</tbody></table></div>
+        </div>
+      )}
+
+      {tab === 'sources' && (
+        <div className="workbench-grid">
+          <section className="panel">
+            <div className="panel-header"><h2>成绩来源设置</h2><span className="subtitle">机构内 / 学校内 / 其他第三方</span></div>
+            <div className="table-wrap"><table className="table"><thead><tr><th>一级来源</th><th>考试来源</th><th>状态</th><th>操作</th></tr></thead><tbody>{sources.flatMap((root) => root.children.map((child: any) => <tr key={child.id}><td>{root.name}</td><td>{child.name}</td><td><span className={child.enabled ? 'badge green' : 'badge orange'}>{child.enabled ? '启用' : '停用'}</span></td><td><button className="btn" onClick={() => toggleSource(child)}>{child.enabled ? '停用' : '启用'}</button><button className="btn danger" style={{ marginLeft: 6 }} onClick={() => deleteSource(child)}>删除</button></td></tr>))}{sources.length === 0 && <tr><td colSpan={4}>暂无来源</td></tr>}</tbody></table></div>
+          </section>
+          <form className="panel" onSubmit={createSource}>
+            <div className="panel-header"><h2>新增考试来源</h2></div>
+            <div className="form-row"><label style={{ width: '100%' }}>一级来源<select required value={sourceForm.parentId} onChange={(e) => setSourceForm({ ...sourceForm, parentId: e.target.value })}><option value="">选择一级来源</option>{sources.map((root) => <option key={root.id} value={root.id}>{root.name}</option>)}</select></label></div>
+            <div className="form-row"><label style={{ width: '100%' }}>来源名称<input required value={sourceForm.name} onChange={(e) => setSourceForm({ ...sourceForm, name: e.target.value })} placeholder="例如：周测" /></label></div>
+            <button className="btn primary icon-text" type="submit"><Plus size={15} />新增来源</button>
+          </form>
         </div>
       )}
 

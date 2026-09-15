@@ -5,11 +5,15 @@ export async function getStudentReport(app: FastifyInstance, studentId: number) 
   const student = (await app.pool.query('SELECT * FROM students WHERE id = $1', [studentId])).rows[0];
   const scores = (await app.pool.query(
     `SELECT ss.id, ss.score, ss.source, ss.exam_date, ss.remark, ss.class_id,
-            p.name AS project_name, e.name AS exam_name, c.name AS class_name
+            p.name AS project_name, e.name AS exam_name, c.name AS class_name,
+            child.name AS source_name, parent.name AS source_parent_name,
+            CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
      FROM student_scores ss
      JOIN exam_projects p ON p.id = ss.project_id
      JOIN exams e ON e.id = ss.exam_id
      LEFT JOIN classes c ON c.id = ss.class_id
+     LEFT JOIN score_sources child ON child.id = ss.source_id
+     LEFT JOIN score_sources parent ON parent.id = child.parent_id
      WHERE ss.student_id = $1
      ORDER BY ss.exam_date DESC, ss.id DESC`,
     [studentId]

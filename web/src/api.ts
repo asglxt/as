@@ -4,9 +4,9 @@ export function getToken(): string | null {
 
 export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined)
   };
+  if (options.body !== undefined && options.body !== null) headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(path, { ...options, headers });

@@ -31,6 +31,61 @@ export async function scoreRoutes(app: FastifyInstance) {
     return user.role === 'student' && Number(user.studentId) === Number(studentId);
   }
 
+  app.get('/sources', { preHandler: [authGuard] }, async () => {
+    const rows = (await app.pool.query('SELECT * FROM score_sources ORDER BY COALESCE(parent_id,0), sort, id')).rows;
+    const roots = rows.filter((row) => row.parent_id === null).map((root) => ({
+      ...root, id: Number(root.id), parent_id: null,
+      children: rows.filter((child) => Number(child.parent_id) === Number(root.id)).map((child) => ({ ...child, id: Number(child.id), parent_id: Number(child.parent_id) }))
+    }));
+    return roots;
+  });
+
+  app.post('/sources', { preHandler: [authGuard, requireRole('admin')] }, async (request, reply) => {
+    const body = request.body as { parentId?: number; name?: string; sort?: number };
+    if (!body.name?.trim()) return reply.code(400).send({ error: 'name required' });
+    if (body.parentId) {
+      const parent = await app.pool.query('SELECT 1 FROM score_sources WHERE id=$1', [body.parentId]);
+      if (!parent.rowCount) return reply.code(404).send({ error: 'parent source not found' });
+    }
+    try {
+      const result = await app.pool.query(
+        `INSERT INTO score_sources (parent_id,name,sort) VALUES ($1,$2,$3) RETURNING *`,
+        [body.parentId ?? null, body.name.trim(), body.sort ?? 0]
+      );
+      return result.rows[0];
+    } catch (error: any) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'source name exists' });
+      throw error;
+    }
+  });
+
+  app.patch('/sources/:id', { preHandler: [authGuard, requireRole('admin')] }, async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    const body = request.body as { name?: string; sort?: number; enabled?: boolean };
+    try {
+      const result = await app.pool.query(
+        `UPDATE score_sources SET name=COALESCE($1,name),sort=COALESCE($2,sort),enabled=COALESCE($3,enabled),updated_at=now() WHERE id=$4 RETURNING *`,
+        [body.name?.trim() || null, body.sort ?? null, body.enabled ?? null, id]
+      );
+      if (!result.rowCount) return reply.code(404).send({ error: 'score source not found' });
+      return result.rows[0];
+    } catch (error: any) {
+      if (error.code === '23505') return reply.code(409).send({ error: 'source name exists' });
+      throw error;
+    }
+  });
+
+  app.delete('/sources/:id', { preHandler: [authGuard, requireRole('admin')] }, async (request, reply) => {
+    const id = Number((request.params as { id: string }).id);
+    const children = (await app.pool.query('SELECT COUNT(*)::int AS count FROM score_sources WHERE parent_id=$1', [id])).rows[0].count;
+    if (Number(children) > 0) return reply.code(409).send({ error: '请先删除下级来源' });
+    const usage = (await app.pool.query('SELECT COUNT(*)::int AS count FROM student_scores WHERE source_id=$1', [id])).rows[0].count;
+    if (Number(usage) > 0) return reply.code(409).send({ error: '该来源已被成绩使用，不能删除' });
+    const result = await app.pool.query('DELETE FROM score_sources WHERE id=$1 RETURNING id', [id]);
+    if (!result.rowCount) return reply.code(404).send({ error: 'score source not found' });
+    return { ok: true };
+  });
+
   app.get('/analytics/student/:studentId', { preHandler: [authGuard] }, async (request, reply) => {
     const studentId = Number((request.params as { studentId: string }).studentId);
     if (!(await canViewStudentAnalytics(request, studentId))) return reply.code(403).send({ error: 'forbidden' });
@@ -174,7 +229,7 @@ export async function scoreRoutes(app: FastifyInstance) {
   app.post('/bulk', { preHandler: read }, async (request, reply) => {
     const body = request.body as {
       classId?: number; projectId?: number; examId?: number; examDate?: string;
-      source?: string; scores?: Array<{ studentId?: number; score?: string; remark?: string }>;
+      source?: string; sourceId?: number; scores?: Array<{ studentId?: number; score?: string; remark?: string }>;
     };
     if (!body.projectId || !body.examId || !body.examDate || !Array.isArray(body.scores)) {
       return reply.code(400).send({ error: 'projectId, examId, examDate, scores required' });
@@ -187,13 +242,13 @@ export async function scoreRoutes(app: FastifyInstance) {
       for (const item of body.scores) {
         if (!item.studentId) continue;
         await client.query(
-          `INSERT INTO student_scores (student_id, project_id, exam_id, class_id, score, source, exam_date, remark, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          `INSERT INTO student_scores (student_id, project_id, exam_id, class_id, score, source, source_id, exam_date, remark, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            ON CONFLICT (student_id, project_id, exam_id, exam_date)
            DO UPDATE SET score = EXCLUDED.score, remark = EXCLUDED.remark, class_id = EXCLUDED.class_id,
-             source = EXCLUDED.source, created_by = EXCLUDED.created_by`,
+             source = EXCLUDED.source, source_id = EXCLUDED.source_id, created_by = EXCLUDED.created_by`,
           [item.studentId, body.projectId, body.examId, body.classId ?? null,
-           item.score ?? null, body.source ?? 'teacher', body.examDate, item.remark ?? null, request.user!.id]
+           item.score ?? null, body.source ?? 'teacher', body.sourceId ?? null, body.examDate, item.remark ?? null, request.user!.id]
         );
         count += 1;
       }
@@ -251,12 +306,16 @@ export async function scoreRoutes(app: FastifyInstance) {
     if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
       `SELECT st.name AS student_name, p.name AS project_name, e.name AS exam_name,
-              ss.score, ss.source, ss.exam_date, c.name AS class_name, ss.remark
+              ss.score, ss.source, ss.exam_date, c.name AS class_name, ss.remark,
+              child.name AS source_name, parent.name AS source_parent_name,
+              CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
        FROM student_scores ss
        JOIN students st ON st.id = ss.student_id
        JOIN exam_projects p ON p.id = ss.project_id
        JOIN exams e ON e.id = ss.exam_id
        LEFT JOIN classes c ON c.id = ss.class_id
+       LEFT JOIN score_sources child ON child.id = ss.source_id
+       LEFT JOIN score_sources parent ON parent.id = child.parent_id
        WHERE ($1::bigint IS NULL OR ss.class_id = $1)
          AND ($2::bigint IS NULL OR ss.project_id = $2)
          AND ($3::bigint IS NULL OR ss.exam_id = $3)
@@ -265,9 +324,9 @@ export async function scoreRoutes(app: FastifyInstance) {
        ORDER BY ss.exam_date DESC`,
       params
     )).rows;
-    const header = 'student_name,project_name,exam_name,score,source,exam_date,class_name,remark';
+    const header = 'student_name,project_name,exam_name,score,source,source_path,exam_date,class_name,remark';
     const lines = rows.map((r: any) => [r.student_name, r.project_name, r.exam_name, r.score ?? '', r.source,
-      String(r.exam_date).slice(0, 10), r.class_name ?? '', r.remark ?? ''].join(','));
+      r.source_path ?? '', String(r.exam_date).slice(0, 10), r.class_name ?? '', r.remark ?? ''].join(','));
     reply.header('Content-Type', 'text/csv; charset=utf-8');
     reply.header('Content-Disposition', 'attachment; filename="scores.csv"');
     return [header, ...lines].join('\n');
@@ -297,12 +356,16 @@ export async function scoreRoutes(app: FastifyInstance) {
     ];
     if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
-      `SELECT ss.*, st.name AS student_name, p.name AS project_name, e.name AS exam_name, c.name AS class_name
+      `SELECT ss.*, st.name AS student_name, p.name AS project_name, e.name AS exam_name, c.name AS class_name,
+              child.name AS source_name, parent.name AS source_parent_name,
+              CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
        FROM student_scores ss
        JOIN students st ON st.id = ss.student_id
        JOIN exam_projects p ON p.id = ss.project_id
        JOIN exams e ON e.id = ss.exam_id
        LEFT JOIN classes c ON c.id = ss.class_id
+       LEFT JOIN score_sources child ON child.id = ss.source_id
+       LEFT JOIN score_sources parent ON parent.id = child.parent_id
        ${where}
        ORDER BY ss.exam_date DESC, ss.id DESC
        LIMIT ${limit} OFFSET ${offset}`,

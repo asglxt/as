@@ -23,6 +23,10 @@ async function main() {
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
   const projectIds = (await pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows.map((row) => Number(row.id));
   const examIds = (await pool.query('SELECT id FROM exams ORDER BY id LIMIT 3')).rows.map((row) => Number(row.id));
+  const defaultSourceId = (await pool.query(
+    `SELECT child.id FROM score_sources child JOIN score_sources parent ON parent.id=child.parent_id
+     WHERE parent.slug='institution' AND child.name='机构内测评' LIMIT 1`
+  )).rows[0]?.id ?? null;
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0, parents: 0 };
@@ -212,9 +216,9 @@ async function main() {
           const dates = ['2026-08-01', '2026-08-15', '2026-09-01'];
           for (let scoreIndex = 0; scoreIndex < 3; scoreIndex += 1) {
             await client.query(
-              `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,exam_date,remark,created_by)
-               VALUES ($1,$2,$3,$4,$5,'teacher',$6,$7,$8) ON CONFLICT DO NOTHING`,
-              [studentId, projectIds[0], examIds[scoreIndex], firstClass.id, String(base + changes[scoreIndex]), dates[scoreIndex],
+              `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,source_id,exam_date,remark,created_by)
+               VALUES ($1,$2,$3,$4,$5,'teacher',$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+              [studentId, projectIds[0], examIds[scoreIndex], firstClass.id, String(base + changes[scoreIndex]), defaultSourceId, dates[scoreIndex],
                changes[scoreIndex] > 0 ? '成绩提升明显' : changes[scoreIndex] < 0 ? '成绩需要关注' : '阶段测评', firstClass.teacher_id]
             );
           }
