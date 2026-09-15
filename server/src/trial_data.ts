@@ -10,6 +10,77 @@ export interface TrialDataConfig {
   studentsPerClass: number;
 }
 
+export interface TrialScoreDefinition {
+  projectName: string;
+  examName: string;
+  examDate: string;
+  sourceParent: 'institution' | 'school' | 'third_party';
+  sourceName: string;
+  sourceKind: 'teacher' | 'import' | 'registration';
+}
+
+export const TRIAL_SCORE_DEFINITIONS: TrialScoreDefinition[] = [
+  { projectName: '入学测', examName: '2025年秋季入学测', examDate: '2025-09-06', sourceParent: 'institution', sourceName: '入学测', sourceKind: 'teacher' },
+  { projectName: '学校单元测', examName: '校内第一单元测', examDate: '2025-10-18', sourceParent: 'school', sourceName: '单元测', sourceKind: 'import' },
+  { projectName: '月考', examName: '2025年11月月考', examDate: '2025-11-08', sourceParent: 'institution', sourceName: '月考', sourceKind: 'teacher' },
+  { projectName: '学校月考', examName: '校内秋季月考', examDate: '2025-12-13', sourceParent: 'school', sourceName: '月考', sourceKind: 'import' },
+  { projectName: '单元测', examName: '2026年春季单元测', examDate: '2026-01-17', sourceParent: 'institution', sourceName: '单元测', sourceKind: 'teacher' },
+  { projectName: '学校期中考试', examName: '校内春季期中考试', examDate: '2026-03-21', sourceParent: 'school', sourceName: '期中考试', sourceKind: 'import' },
+  { projectName: '期中考试', examName: '2026年春季期中考试', examDate: '2026-04-11', sourceParent: 'institution', sourceName: '期中考试', sourceKind: 'teacher' },
+  { projectName: '圣三一等级', examName: '圣三一等级考试', examDate: '2026-05-23', sourceParent: 'third_party', sourceName: '圣三一等级', sourceKind: 'registration' },
+  { projectName: '期末考试', examName: '2025-2026学年期末考试', examDate: '2026-06-20', sourceParent: 'institution', sourceName: '期末考试', sourceKind: 'teacher' },
+  { projectName: '学校期末考试', examName: '校内期末考试', examDate: '2026-06-27', sourceParent: 'school', sourceName: '期末考试', sourceKind: 'import' }
+];
+
+const CLASS_SCORE_BASES = [96, 92, 87, 98, 90, 94, 85, 93, 89, 97];
+const SUBJECT_ADJUSTMENTS = [1, 0, -1, 2, -2];
+
+function clampScore(score: number) {
+  return Math.max(50, Math.min(100, score));
+}
+
+export function buildTrialScoreSeries(input: {
+  studentSeed: number;
+  subjectSeed: number;
+  classSeed: number;
+  count?: number;
+}) {
+  const { studentSeed, subjectSeed, classSeed, count = TRIAL_SCORE_DEFINITIONS.length } = input;
+  const classBase = CLASS_SCORE_BASES[Math.abs(classSeed) % CLASS_SCORE_BASES.length];
+  const subjectAdjustment = SUBJECT_ADJUSTMENTS[Math.abs(subjectSeed) % SUBJECT_ADJUSTMENTS.length];
+  const studentOffset = ((studentSeed * 17 + subjectSeed * 11) % 15) - 7;
+  const trendPerAssessment = ((studentSeed + subjectSeed * 3) % 3) - 1;
+  const used = new Set<number>();
+
+  return Array.from({ length: count }, (_, index) => {
+    const noiseSeed = studentSeed * 31 + subjectSeed * 17 + classSeed * 13 + index * 7;
+    const noise = ((noiseSeed % 9) + 9) % 9 - 4;
+    const raw = clampScore(Math.round(
+      classBase + subjectAdjustment + studentOffset + trendPerAssessment * index + noise
+    ));
+    if (!used.has(raw)) {
+      used.add(raw);
+      return raw;
+    }
+
+    for (let distance = 1; distance <= 20; distance += 1) {
+      const lower = raw - distance;
+      const upper = raw + distance;
+      if (lower >= 50 && !used.has(lower)) {
+        used.add(lower);
+        return lower;
+      }
+      if (upper <= 100 && !used.has(upper)) {
+        used.add(upper);
+        return upper;
+      }
+    }
+
+    used.add(raw);
+    return raw;
+  });
+}
+
 const CAMPUS_ABBR: Record<string, string> = {
   '广场校区': 'GC',
   '华信校区': 'HX',

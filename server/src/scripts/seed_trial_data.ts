@@ -1,7 +1,7 @@
 import { loadConfig } from '../config.ts';
 import { createPool } from '../db.ts';
 import { hashPassword } from '../auth/password.ts';
-import { buildTrialDataPlan } from '../trial_data.ts';
+import { buildTrialDataPlan, buildTrialScoreSeries, TRIAL_SCORE_DEFINITIONS } from '../trial_data.ts';
 
 const config = {
   classesPerCampus: Number(process.env.TRIAL_CLASSES_PER_CAMPUS ?? 10),
@@ -21,19 +21,86 @@ async function main() {
   const passwordHash = await hashPassword(teacherPassword);
   const subjectRows = (await pool.query('SELECT id, name FROM subjects')).rows;
   const subjectIds = new Map(subjectRows.map((row) => [row.name, Number(row.id)]));
-  const projectIds = (await pool.query('SELECT id FROM exam_projects ORDER BY id LIMIT 1')).rows.map((row) => Number(row.id));
-  const examIds = (await pool.query('SELECT id FROM exams ORDER BY id LIMIT 3')).rows.map((row) => Number(row.id));
-  const defaultSourceId = (await pool.query(
-    `SELECT child.id FROM score_sources child JOIN score_sources parent ON parent.id=child.parent_id
-     WHERE parent.slug='institution' AND child.name='机构内测评' LIMIT 1`
-  )).rows[0]?.id ?? null;
   const teacherRole = (await pool.query("SELECT id FROM roles WHERE name = '教师' LIMIT 1")).rows[0];
   const startDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const summary = { campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0, schedules: 0, enrollments: 0, parents: 0 };
+  const summary = {
+    campuses: 0, teachers: 0, classrooms: 0, lessons: 0, classes: 0, students: 0,
+    schedules: 0, enrollments: 0, secondaryEnrollments: 0, scoreSubjects: 0, scores: 0, parents: 0
+  };
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const scoreSourceIds = new Map<string, number>();
+    const projectIdsByName = new Map<string, number>();
+    const examIdsByKey = new Map<string, number>();
+    const legacyExamNames = TRIAL_SCORE_DEFINITIONS.map((definition) => definition.examName);
+    const trialExamDates = [...new Set(TRIAL_SCORE_DEFINITIONS.map((definition) => definition.examDate))];
+
+    await client.query(
+      `DELETE FROM student_scores ss
+       USING students s, exams e
+       WHERE ss.student_id = s.id AND ss.exam_id = e.id
+         AND s.notes LIKE 'TRIAL_SEED_V1:%'
+         AND e.name = ANY($1::text[])`,
+      [legacyExamNames]
+    );
+    await client.query(
+      `DELETE FROM exams e
+       WHERE e.name = ANY($1::text[])
+         AND NOT EXISTS (SELECT 1 FROM student_scores ss WHERE ss.exam_id = e.id)`,
+      [legacyExamNames]
+    );
+    await client.query(
+      `DELETE FROM student_scores ss
+       USING students s, score_sources child, score_sources parent
+       WHERE ss.student_id = s.id
+         AND ss.source_id = child.id
+         AND child.parent_id = parent.id
+         AND s.notes LIKE 'TRIAL_SEED_V1:%'
+         AND parent.slug = 'institution'
+         AND child.name = '机构内测评'
+         AND NOT (ss.exam_date = ANY($1::date[]))`,
+      [trialExamDates]
+    );
+
+    for (const [index, definition] of TRIAL_SCORE_DEFINITIONS.entries()) {
+      const parent = (await client.query('SELECT id FROM score_sources WHERE slug=$1', [definition.sourceParent])).rows[0];
+      if (!parent) throw new Error(`score source parent not found: ${definition.sourceParent}`);
+
+      const insertedSource = await client.query(
+        `INSERT INTO score_sources (parent_id,name,sort) VALUES ($1,$2,$3)
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [parent.id, definition.sourceName, index + 1]
+      );
+      const sourceId = insertedSource.rows[0]?.id
+        ?? (await client.query('SELECT id FROM score_sources WHERE parent_id=$1 AND name=$2', [parent.id, definition.sourceName])).rows[0]?.id;
+      if (!sourceId) throw new Error(`score source not found: ${definition.sourceParent}/${definition.sourceName}`);
+      scoreSourceIds.set(`${definition.sourceParent}:${definition.sourceName}`, Number(sourceId));
+
+      const project = await client.query(
+        `INSERT INTO exam_projects (name,sort,enabled) VALUES ($1,$2,true)
+         ON CONFLICT (name) DO UPDATE SET enabled=true RETURNING id`,
+        [definition.projectName, index + 1]
+      );
+      projectIdsByName.set(definition.projectName, Number(project.rows[0].id));
+
+    }
+
+    async function getSubjectExamId(definition: (typeof TRIAL_SCORE_DEFINITIONS)[number], subjectName: string) {
+      const examName = `${definition.examName}·${subjectName}`;
+      const cached = examIdsByKey.get(examName);
+      if (cached) return cached;
+      const exam = await client.query(
+        `INSERT INTO exams (name,sort,enabled) VALUES ($1,$2,true)
+         ON CONFLICT (name) DO UPDATE SET enabled=true RETURNING id`,
+        [examName, TRIAL_SCORE_DEFINITIONS.indexOf(definition) + 1]
+      );
+      const examId = Number(exam.rows[0].id);
+      examIdsByKey.set(examName, examId);
+      return examId;
+    }
+
     for (const campus of plan) {
       summary.campuses += 1;
       await client.query("UPDATE campuses SET code = COALESCE(NULLIF(code, ''), $1), updated_at = now() WHERE id = $2", [campus.campusCode, campus.campusId]);
@@ -87,6 +154,9 @@ async function main() {
         summary.lessons += 1;
       }
 
+      const classRecords: Array<{ id: number; lessonId: number; teacherId: number; lessonIndex: number; classIndex: number; subjectName: string; subjectFamily: string }> = [];
+      const studentAssignments = new Map<string, { studentId: number; primaryClassId: number }>();
+
       for (const [classIndex, classItem] of campus.classes.entries()) {
         const teacherId = teacherIds[classItem.teacherIndex];
         const lessonId = lessonIds[classItem.lessonIndex];
@@ -107,6 +177,15 @@ async function main() {
           );
           classId = Number(result.rows[0].id);
         }
+        classRecords.push({
+          id: classId,
+          lessonId,
+          teacherId,
+          lessonIndex: classItem.lessonIndex,
+          classIndex,
+          subjectName: classItem.subject,
+          subjectFamily: classItem.subject === '英语进阶' ? '英语' : classItem.subject
+        });
         summary.classes += 1;
 
         for (let dayOffset = 0; dayOffset < 7; dayOffset += 1) {
@@ -153,6 +232,7 @@ async function main() {
                teacher_id = EXCLUDED.teacher_id, start_date = EXCLUDED.start_date, status = 'active', left_at = NULL`,
             [classId, studentId, lessonId, teacherId, startDate]
           );
+          studentAssignments.set(student.marker, { studentId, primaryClassId: classId });
           const existingEnrollment = await client.query(
             'SELECT id FROM enrollments WHERE student_id=$1 AND lesson_id=$2 AND campus_id=$3 LIMIT 1',
             [studentId, lessonId, campus.campusId]
@@ -172,6 +252,93 @@ async function main() {
           }
           summary.enrollments += 1;
           summary.students += 1;
+        }
+      }
+
+      for (const assignment of studentAssignments.values()) {
+        const primaryIndex = classRecords.findIndex((item) => item.id === assignment.primaryClassId);
+        if (primaryIndex < 0) continue;
+        const primaryClass = classRecords[primaryIndex];
+        let secondaryClass: (typeof classRecords)[number] | null = null;
+        for (let offset = 1; offset < classRecords.length; offset += 1) {
+          const candidate = classRecords[(primaryIndex + offset) % classRecords.length];
+          if (candidate.subjectFamily !== primaryClass.subjectFamily) {
+            secondaryClass = candidate;
+            break;
+          }
+        }
+        if (!secondaryClass) continue;
+
+        await client.query(
+          'DELETE FROM class_students WHERE student_id=$1 AND class_id<>$2',
+          [assignment.studentId, assignment.primaryClassId]
+        );
+        await client.query(
+          `DELETE FROM student_scores
+           WHERE student_id=$1 AND class_id IS NOT NULL AND NOT (class_id = ANY($2::bigint[]))`,
+          [assignment.studentId, [assignment.primaryClassId, secondaryClass.id]]
+        );
+
+        await client.query(
+          `INSERT INTO class_students (class_id, student_id, lesson_id, teacher_id, start_date, status)
+           VALUES ($1,$2,$3,$4,$5,'active')
+           ON CONFLICT (class_id, student_id) DO UPDATE SET lesson_id = EXCLUDED.lesson_id,
+             teacher_id = EXCLUDED.teacher_id, start_date = EXCLUDED.start_date, status = 'active', left_at = NULL`,
+          [secondaryClass.id, assignment.studentId, secondaryClass.lessonId, secondaryClass.teacherId, startDate]
+        );
+        const existingSecondaryEnrollment = await client.query(
+          'SELECT id FROM enrollments WHERE student_id=$1 AND lesson_id=$2 AND campus_id=$3 LIMIT 1',
+          [assignment.studentId, secondaryClass.lessonId, campus.campusId]
+        );
+        if (!existingSecondaryEnrollment.rowCount) {
+          const enrollment = await client.query(
+            `INSERT INTO enrollments (student_id,lesson_id,campus_id,purchased_hours,used_hours,remaining_hours,
+               total_fee,paid_fee,remaining_fee,arrears,unit_price)
+             VALUES ($1,$2,$3,48,0,48,4800,4800,4800,0,100) RETURNING id`,
+            [assignment.studentId, secondaryClass.lessonId, campus.campusId]
+          );
+          await client.query(
+            `INSERT INTO hour_transactions (enrollment_id,student_id,type,hours,balance_after,remark,created_by)
+             VALUES ($1,$2,'purchase',48,48,'试用第二科目课时',$3)`,
+            [enrollment.rows[0].id, assignment.studentId, secondaryClass.teacherId]
+          );
+          summary.secondaryEnrollments += 1;
+        }
+        summary.enrollments += 1;
+
+        const subjectClasses = [primaryClass, secondaryClass];
+        for (const [subjectIndex, subjectClass] of subjectClasses.entries()) {
+          const scores = buildTrialScoreSeries({
+            studentSeed: assignment.studentId,
+            subjectSeed: subjectClass.lessonIndex + subjectIndex,
+            classSeed: subjectClass.classIndex
+          });
+          for (const [scoreIndex, definition] of TRIAL_SCORE_DEFINITIONS.entries()) {
+            const projectId = projectIdsByName.get(definition.projectName);
+            const examId = await getSubjectExamId(definition, subjectClass.subjectName);
+            const sourceId = scoreSourceIds.get(`${definition.sourceParent}:${definition.sourceName}`);
+            if (!projectId || !examId || !sourceId) throw new Error(`score catalog missing: ${definition.projectName}/${definition.examName}`);
+            const previousScore = scoreIndex > 0 ? scores[scoreIndex - 1] : null;
+            const delta = previousScore === null ? 0 : scores[scoreIndex] - previousScore;
+            const remark = scoreIndex === 0
+              ? '入学基线'
+              : delta >= 3
+                ? '成绩提升明显'
+                : delta <= -3
+                  ? '成绩需要关注'
+                  : '成绩保持稳定';
+            await client.query(
+              `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,source_id,exam_date,remark,created_by)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+               ON CONFLICT (student_id, project_id, exam_id, exam_date)
+               DO UPDATE SET score=EXCLUDED.score, class_id=EXCLUDED.class_id, source=EXCLUDED.source,
+                 source_id=EXCLUDED.source_id, remark=EXCLUDED.remark, created_by=EXCLUDED.created_by`,
+              [assignment.studentId, projectId, examId, subjectClass.id, String(scores[scoreIndex]), definition.sourceKind,
+               sourceId, definition.examDate, remark, subjectClass.teacherId]
+            );
+            summary.scores += 1;
+          }
+          summary.scoreSubjects += 1;
         }
       }
 
@@ -210,19 +377,6 @@ async function main() {
            VALUES ($1,$2,'material',$3,$4,180,180,0,'paid') ON CONFLICT (order_no) DO NOTHING`,
           [`TRIAL-${campus.campusCode}-${String(index + 1).padStart(3, '0')}`, studentId, campus.campusId, firstClass.teacher_id]
         );
-        if (projectIds[0] && examIds.length >= 3 && firstClass) {
-          const base = 68 + (studentId % 21);
-          const changes = studentId % 2 === 0 ? [0, 4, 9] : [5, -2, -8];
-          const dates = ['2026-08-01', '2026-08-15', '2026-09-01'];
-          for (let scoreIndex = 0; scoreIndex < 3; scoreIndex += 1) {
-            await client.query(
-              `INSERT INTO student_scores (student_id,project_id,exam_id,class_id,score,source,source_id,exam_date,remark,created_by)
-               VALUES ($1,$2,$3,$4,$5,'teacher',$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
-              [studentId, projectIds[0], examIds[scoreIndex], firstClass.id, String(base + changes[scoreIndex]), defaultSourceId, dates[scoreIndex],
-               changes[scoreIndex] > 0 ? '成绩提升明显' : changes[scoreIndex] < 0 ? '成绩需要关注' : '阶段测评', firstClass.teacher_id]
-            );
-          }
-        }
       }
       if (firstClass) {
         let homeworkId = (await client.query("SELECT id FROM homework WHERE class_id=$1 AND title='试用第一周作业' LIMIT 1", [firstClass.id])).rows[0]?.id;

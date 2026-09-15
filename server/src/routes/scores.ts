@@ -101,7 +101,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     if (classRow?.grade) { params.push(classRow.grade); where.push(`c.grade = $${params.length}`); }
     else { params.push(studentId); where.push(`ss.student_id = $${params.length}`); }
     const rows = (await app.pool.query(
-      `SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date,ss.score,ss.remark,ss.source,
+      `SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date::text AS exam_date,ss.score,ss.remark,ss.source,
               p.name AS project_name,e.name AS exam_name,c.id AS class_id,c.name AS class_name,c.grade
        FROM student_scores ss
        JOIN exam_projects p ON p.id=ss.project_id
@@ -122,7 +122,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     const teacherId = user.role === 'teacher' ? user.id : null;
     const rows = (await app.pool.query(
       `WITH numeric AS (
-         SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date,ss.score::numeric AS score,
+         SELECT ss.id,ss.student_id,ss.project_id,ss.exam_id,ss.exam_date::text AS exam_date,ss.score::numeric AS score,
                 c.id AS class_id,c.name AS class_name,c.grade,p.name AS project_name,e.name AS exam_name,st.name AS student_name
          FROM student_scores ss
          JOIN students st ON st.id=ss.student_id
@@ -161,7 +161,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     const limit = Math.min(500, Math.max(1, Number(query.limit ?? 200)));
     const rows = (await app.pool.query(
       `SELECT c.id AS class_id,c.name AS class_name,c.grade,c.teacher_id,u.display_name AS teacher_name,
-              ss.project_id,p.name AS project_name,ss.exam_id,e.name AS exam_name,ss.exam_date,
+              ss.project_id,p.name AS project_name,ss.exam_id,e.name AS exam_name,ss.exam_date::text AS exam_date,
               ROUND(AVG(ss.score::numeric),2)::float AS average_score,
               MIN(ss.score::numeric)::float AS min_score,MAX(ss.score::numeric)::float AS max_score,
               COUNT(*)::int AS participant_count
@@ -306,7 +306,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
       `SELECT st.name AS student_name, p.name AS project_name, e.name AS exam_name,
-              ss.score, ss.source, ss.exam_date, c.name AS class_name, ss.remark,
+              ss.score, ss.source, ss.exam_date::text AS exam_date, c.name AS class_name, ss.remark,
               child.name AS source_name, parent.name AS source_parent_name,
               CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
        FROM student_scores ss
@@ -356,7 +356,7 @@ export async function scoreRoutes(app: FastifyInstance) {
     ];
     if (request.user!.role === 'teacher') params.push(request.user!.id);
     const rows = (await app.pool.query(
-      `SELECT ss.*, st.name AS student_name, p.name AS project_name, e.name AS exam_name, c.name AS class_name,
+      `SELECT ss.*, ss.exam_date::text AS exam_date, st.name AS student_name, p.name AS project_name, e.name AS exam_name, c.name AS class_name,
               child.name AS source_name, parent.name AS source_parent_name,
               CASE WHEN parent.name IS NULL THEN child.name ELSE parent.name || ' / ' || child.name END AS source_path
        FROM student_scores ss

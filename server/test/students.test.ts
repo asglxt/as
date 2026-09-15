@@ -114,6 +114,36 @@ test('student saves course advisor and returns advisor name', async () => {
   assert.equal(detail.json().student.advisor_name, '教师');
 });
 
+test('student detail exposes score source path', async () => {
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '成绩来源测试' }
+  });
+  const studentId = create.json().id;
+  const project = await app.pool.query("INSERT INTO exam_projects (name, sort) VALUES ('来源测试', 1) RETURNING id");
+  const exam = await app.pool.query("INSERT INTO exams (name, sort) VALUES ('来源测试考试', 1) RETURNING id");
+  const source = await app.pool.query(
+    `SELECT child.id FROM score_sources child JOIN score_sources parent ON parent.id=child.parent_id
+     WHERE parent.slug='institution' AND child.name='机构内测评' LIMIT 1`
+  );
+  await app.pool.query(
+    `INSERT INTO student_scores (student_id, project_id, exam_id, class_id, score, source, source_id, exam_date)
+     VALUES ($1,$2,$3,$4,'93','teacher',$5,'2026-01-10')`,
+    [studentId, project.rows[0].id, exam.rows[0].id, classId, source.rows[0].id]
+  );
+
+  const detail = await app.inject({
+    method: 'GET',
+    url: `/api/students/${studentId}`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().scores[0].source_path, '机构内 / 机构内测评');
+  assert.equal(detail.json().scores[0].exam_date, '2026-01-10');
+});
+
 test('student list filters by keyword and returns pagination summary', async () => {
   await app.inject({
     method: 'POST',

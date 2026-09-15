@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTrialDataPlan } from '../src/trial_data.ts';
+import { buildTrialDataPlan, buildTrialScoreSeries, TRIAL_SCORE_DEFINITIONS } from '../src/trial_data.ts';
 
 test('trial plan creates campus classes with pinyin abbreviation and Chinese names', () => {
   const plan = buildTrialDataPlan([
@@ -39,4 +39,32 @@ test('trial plan creates campus classes with pinyin abbreviation and Chinese nam
       }
     }
   }
+});
+
+test('trial score plan covers institution, school and Trinity assessments for one year', () => {
+  const institutionSources = TRIAL_SCORE_DEFINITIONS
+    .filter((item) => item.sourceParent === 'institution')
+    .map((item) => item.sourceName);
+  const schoolSources = TRIAL_SCORE_DEFINITIONS
+    .filter((item) => item.sourceParent === 'school')
+    .map((item) => item.sourceName);
+  const thirdPartySources = TRIAL_SCORE_DEFINITIONS
+    .filter((item) => item.sourceParent === 'third_party')
+    .map((item) => item.sourceName);
+
+  assert.deepEqual(institutionSources, ['入学测', '月考', '单元测', '期中考试', '期末考试']);
+  assert.deepEqual(schoolSources, ['单元测', '月考', '期中考试', '期末考试']);
+  assert.deepEqual(thirdPartySources, ['圣三一等级']);
+  assert.equal(new Set(TRIAL_SCORE_DEFINITIONS.map((item) => item.examDate)).size, 10);
+  assert.ok(Math.min(...TRIAL_SCORE_DEFINITIONS.map((item) => Number(item.examDate.slice(0, 4) + item.examDate.slice(5, 7)))) < 202601);
+  assert.ok(Math.max(...TRIAL_SCORE_DEFINITIONS.map((item) => Number(item.examDate.slice(0, 4) + item.examDate.slice(5, 7)))) >= 202606);
+});
+
+test('trial score series has ten unique and varied scores', () => {
+  const scores = buildTrialScoreSeries({ studentSeed: 42, subjectSeed: 2, classSeed: 3 });
+
+  assert.equal(scores.length, 10);
+  assert.equal(new Set(scores).size, scores.length);
+  assert.ok(scores.every((score) => score >= 50 && score <= 100));
+  assert.ok(Math.max(...scores) - Math.min(...scores) >= 8);
 });
