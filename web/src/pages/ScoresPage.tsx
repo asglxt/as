@@ -4,7 +4,7 @@ import Shell from '../Shell.tsx';
 import { api, getToken } from '../api.ts';
 import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
 
-const TABS = [['entry', '成绩管理'], ['analytics', '成绩分析'], ['ratings', '班级评级'], ['query', '成绩查询'], ['sources', '来源设置'], ['projects', '项目设置'], ['exams', '考试设置']] as const;
+const TABS = [['entry', '成绩管理'], ['analytics', '成绩分析'], ['ratings', '班级评级'], ['query', '成绩查询'], ['settings', '考试设置']] as const;
 
 interface RosterGroup {
   classId: number;
@@ -31,6 +31,7 @@ export default function ScoresPage() {
   const [ratingClassId, setRatingClassId] = useState('');
   const [sources, setSources] = useState<any[]>([]);
   const [sourceForm, setSourceForm] = useState({ parentId: '', name: '' });
+  const [settingsTab, setSettingsTab] = useState<'sources' | 'projects' | 'exams'>('sources');
 
   async function loadDicts() {
     const [projectList, examList, sourceList] = await Promise.all([api<any[]>('/api/scores/projects'), api<any[]>('/api/scores/exams'), api<any[]>('/api/scores/sources')]);
@@ -118,7 +119,7 @@ export default function ScoresPage() {
 
   async function createDict(e: FormEvent) {
     e.preventDefault();
-    const path = tab === 'projects' ? '/api/scores/projects' : '/api/scores/exams';
+    const path = settingsTab === 'projects' ? '/api/scores/projects' : '/api/scores/exams';
     await api(path, { method: 'POST', body: JSON.stringify({ name: dictName }) });
     setDictName('');
     setMessage('已新增');
@@ -216,7 +217,9 @@ export default function ScoresPage() {
         </div>
       )}
 
-      {tab === 'sources' && (
+      {tab === 'settings' && <div className="tabs sub-tabs"><button className={settingsTab === 'sources' ? 'active' : ''} onClick={() => setSettingsTab('sources')}>成绩来源</button><button className={settingsTab === 'projects' ? 'active' : ''} onClick={() => setSettingsTab('projects')}>考试项目</button><button className={settingsTab === 'exams' ? 'active' : ''} onClick={() => setSettingsTab('exams')}>考试名称</button></div>}
+
+      {tab === 'settings' && settingsTab === 'sources' && (
         <div className="workbench-grid">
           <section className="panel">
             <div className="panel-header"><h2>成绩来源设置</h2><span className="subtitle">机构内 / 学校内 / 其他第三方</span></div>
@@ -232,16 +235,16 @@ export default function ScoresPage() {
       )}
 
 
-      {(tab === 'projects' || tab === 'exams') && (
+      {tab === 'settings' && (settingsTab === 'projects' || settingsTab === 'exams') && (
         <div className="workbench-grid">
           <section className="panel">
-            <div className="panel-header"><h2>{tab === 'projects' ? '项目设置' : '考试设置'}</h2></div>
-            <div className="table-wrap"><table className="table"><thead><tr><th>{tab === 'projects' ? '项目' : '考试'}</th><th>排序</th><th>状态</th></tr></thead><tbody>
-              {(tab === 'projects' ? projects : exams).map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.sort ?? 0}</td><td><span className={item.enabled === false ? 'badge orange' : 'badge green'}>{item.enabled === false ? '停用' : '启用'}</span></td></tr>)}
+            <div className="panel-header"><h2>{settingsTab === 'projects' ? '考试项目' : '考试名称'}</h2></div>
+            <div className="table-wrap"><table className="table"><thead><tr><th>{settingsTab === 'projects' ? '项目' : '考试'}</th><th>排序</th><th>状态</th></tr></thead><tbody>
+              {(settingsTab === 'projects' ? projects : exams).map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.sort ?? 0}</td><td><span className={item.enabled === false ? 'badge orange' : 'badge green'}>{item.enabled === false ? '停用' : '启用'}</span></td></tr>)}
             </tbody></table></div>
           </section>
           <form className="panel" onSubmit={createDict}>
-            <div className="panel-header"><h2>新增{tab === 'projects' ? '项目' : '考试'}</h2></div>
+            <div className="panel-header"><h2>新增{settingsTab === 'projects' ? '项目' : '考试'}</h2></div>
             <div className="form-row"><label style={{ width: '100%' }}>名称<input required value={dictName} onChange={(e) => setDictName(e.target.value)} /></label></div>
             <button className="btn primary icon-text" type="submit"><Plus size={15} />新增</button>
           </form>

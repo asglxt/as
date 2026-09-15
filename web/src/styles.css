@@ -343,6 +343,8 @@ button { color: inherit; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e3e9f2; margin-bottom: 16px; overflow-x: auto; }
 .tabs button { border: 0; background: transparent; padding: 10px 14px; color: #68758a; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs button.active { color: #2457c5; border-bottom-color: #2563eb; font-weight: 600; }
+.tabs.sub-tabs { margin-top: -6px; border-bottom-color: #edf1f6; }
+.tabs.sub-tabs button { padding: 8px 12px; font-size: 12px; }
 
 .workbench-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .8fr); gap: 16px; }
 .workbench-side { display: grid; gap: 16px; align-content: start; }
