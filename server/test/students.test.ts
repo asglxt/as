@@ -190,6 +190,97 @@ test('student list filters by class and guardian phone', async () => {
   assert.equal(res.json().items[0].name, '手机筛选甲');
 });
 
+test('student list supports advisor, source and enrollment filters with profile completeness', async () => {
+  const advisorId = (await app.pool.query("SELECT id FROM users WHERE username='teacher'")).rows[0].id;
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: {
+      campusId: seed.campusId,
+      name: '完整档案学员',
+      advisorId,
+      source: '转介绍',
+      enrollmentDate: '2026-08-01',
+      birthday: '2015-05-06',
+      schoolName: '实验小学',
+      grade: '四年级',
+      address: '海棠路 18 号',
+      guardians: [{ name: '张妈妈', relation: '母亲', phone: '13812340000', isPrimary: true }]
+    }
+  });
+  await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '待完善档案学员', source: '自然到访', enrollmentDate: '2025-01-01' }
+  });
+
+  const res = await app.inject({
+    method: 'GET',
+    url: `/api/students/list?advisorId=${advisorId}&source=${encodeURIComponent('转介绍')}&enrollmentStart=2026-07-01&enrollmentEnd=2026-08-31&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items.length, 1);
+  assert.equal(res.json().items[0].id, Number(create.json().id));
+  assert.equal(res.json().items[0].primary_guardian_name, '张妈妈');
+  assert.equal(res.json().items[0].primary_guardian_phone, '13812340000');
+  assert.equal(res.json().items[0].profile_complete, true);
+  assert.equal(Number(res.json().items[0].age) > 0, true);
+});
+
+test('batch update can assign advisor and writes an audit log', async () => {
+  const advisorId = (await app.pool.query("SELECT id FROM users WHERE username='teacher'")).rows[0].id;
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '批量跟进学员' }
+  });
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/students/batch',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { ids: [create.json().id], advisorId, status: 'inactive' }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().count, 1);
+  const row = await app.pool.query('SELECT advisor_id,status FROM students WHERE id=$1', [create.json().id]);
+  assert.equal(Number(row.rows[0].advisor_id), Number(advisorId));
+  assert.equal(row.rows[0].status, 'inactive');
+  const audit = await app.pool.query("SELECT COUNT(*)::int AS count FROM audit_logs WHERE entity_type='student' AND entity_id=$1 AND action='student.batch_update'", [create.json().id]);
+  assert.equal(audit.rows[0].count, 1);
+});
+
+test('student detail returns attendance records and operation logs', async () => {
+  const create = await app.inject({
+    method: 'POST',
+    url: '/api/students',
+    headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '考勤记录学员' }
+  });
+  const studentId = create.json().id;
+  const teacherId = (await app.pool.query("SELECT id FROM users WHERE username='teacher'")).rows[0].id;
+  const teachingLog = await app.pool.query(
+    `INSERT INTO teaching_logs (class_id,campus_id,teacher_id,status,taught_at,recorded_by,recorded_at)
+     VALUES ($1,$2,$3,'recorded','2026-09-10 10:00:00+08',$3,now()) RETURNING id`,
+    [classId, seed.campusId, teacherId]
+  );
+  await app.pool.query(
+    `INSERT INTO attendance_records (teaching_log_id,student_id,status,hours_deducted,remark)
+     VALUES ($1,$2,'present',1.5,'课堂表现积极')`,
+    [teachingLog.rows[0].id, studentId]
+  );
+
+  const detail = await app.inject({ method: 'GET', url: `/api/students/${studentId}`, headers: { authorization: `Bearer ${seed.adminToken}` } });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().attendanceRecords.length, 1);
+  assert.equal(detail.json().attendanceRecords[0].status, 'present');
+  assert.equal(Number(detail.json().attendanceRecords[0].hours_deducted), 1.5);
+  assert.ok(detail.json().auditLogs.some((item: any) => item.action === 'student.create'));
+});
+
 test('batch update changes student status', async () => {
   const create = await app.inject({
     method: 'POST',

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, Plus, Search, Upload, Users } from 'lucide-react';
+import { Columns3, Download, Plus, Search, SlidersHorizontal, Upload, Users } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 
 interface StudentItem {
   id: number;
   name: string;
+  student_no: string | null;
   status: string;
   campus_name: string | null;
   class_names: string;
@@ -15,6 +16,11 @@ interface StudentItem {
   guardian_phone: string | null;
   source: string | null;
   advisor_name: string | null;
+  primary_guardian_name: string | null;
+  primary_guardian_phone: string | null;
+  age: number | null;
+  profile_complete: boolean;
+  has_arrears: boolean;
   enrollment_date: string | null;
 }
 
@@ -23,8 +29,21 @@ interface StudentListResponse {
   total: number;
   page: number;
   pageSize: number;
-  summary: { total: number; active: number; inactive: number; graduated: number };
+  summary: { total: number; active: number; inactive: number; graduated: number; profileIncomplete: number; arrears: number };
 }
+
+const COLUMN_DEFS = [
+  { key: 'studentNo', label: '学员编号' },
+  { key: 'gender', label: '性别' },
+  { key: 'birthday', label: '生日' },
+  { key: 'age', label: '年龄' },
+  { key: 'source', label: '来源' },
+  { key: 'advisor', label: '课程顾问' },
+  { key: 'profile', label: '档案状态' },
+  { key: 'arrears', label: '欠费提醒' }
+] as const;
+
+const DEFAULT_COLUMNS = Object.fromEntries(COLUMN_DEFS.map((column) => [column.key, true]));
 
 const STATUS_LABELS: Record<string, string> = { active: '在读', inactive: '停课', graduated: '结课' };
 const STATUS_CLASSES: Record<string, string> = { active: 'green', inactive: 'orange', graduated: 'blue' };
@@ -35,14 +54,18 @@ const EMPTY_FORM = {
 };
 
 export default function StudentsPage() {
-  const [data, setData] = useState<StudentListResponse>({ items: [], total: 0, page: 1, pageSize: 20, summary: { total: 0, active: 0, inactive: 0, graduated: 0 } });
+  const [data, setData] = useState<StudentListResponse>({ items: [], total: 0, page: 1, pageSize: 20, summary: { total: 0, active: 0, inactive: 0, graduated: 0, profileIncomplete: 0, arrears: 0 } });
   const [campuses, setCampuses] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState('');
-  const [filters, setFilters] = useState({ keyword: '', status: 'active', campusId: '', gender: '', page: 1, pageSize: 20 });
+  const [filters, setFilters] = useState({ keyword: '', status: 'active', campusId: '', gender: '', advisorId: '', classId: '', phone: '', source: '', enrollmentStart: '', enrollmentEnd: '', page: 1, pageSize: 20 });
+  const [batchForm, setBatchForm] = useState({ status: '', campusId: '', advisorId: '' });
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(DEFAULT_COLUMNS);
   const [form, setForm] = useState(EMPTY_FORM);
+  const columnCount = 7 + Object.values(visibleColumns).filter(Boolean).length;
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -50,6 +73,12 @@ export default function StudentsPage() {
     if (filters.status) params.set('status', filters.status);
     if (filters.campusId) params.set('campusId', filters.campusId);
     if (filters.gender) params.set('gender', filters.gender);
+    if (filters.advisorId) params.set('advisorId', filters.advisorId);
+    if (filters.classId) params.set('classId', filters.classId);
+    if (filters.phone.trim()) params.set('phone', filters.phone.trim());
+    if (filters.source.trim()) params.set('source', filters.source.trim());
+    if (filters.enrollmentStart) params.set('enrollmentStart', filters.enrollmentStart);
+    if (filters.enrollmentEnd) params.set('enrollmentEnd', filters.enrollmentEnd);
     params.set('page', String(filters.page));
     params.set('pageSize', String(filters.pageSize));
     return params.toString();
@@ -68,6 +97,7 @@ export default function StudentsPage() {
   useEffect(() => {
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
     api<any[]>('/api/roles/staff').then(setStaff).catch(() => {});
+    api<any[]>('/api/classes').then(setClasses).catch(() => {});
   }, []);
 
   function search(e: FormEvent) {
@@ -83,13 +113,19 @@ export default function StudentsPage() {
     setSelected((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
   }
 
-  async function batchUpdate(status: string) {
-    if (!selected.length || !status) return;
+  async function applyBatch() {
+    const payload = {
+      status: batchForm.status || undefined,
+      campusId: batchForm.campusId ? Number(batchForm.campusId) : undefined,
+      advisorId: batchForm.advisorId ? Number(batchForm.advisorId) : undefined
+    };
+    if (!selected.length || (!payload.status && !payload.campusId && !payload.advisorId)) return;
     const result = await api<{ count: number }>('/api/students/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids: selected, status })
+      body: JSON.stringify({ ids: selected, ...payload })
     });
-    setMessage(`已调整 ${result.count} 名学员`);
+    setMessage(`已批量调整 ${result.count} 名学员`);
+    setBatchForm({ status: '', campusId: '', advisorId: '' });
     await load();
   }
 
@@ -185,12 +221,25 @@ export default function StudentsPage() {
 
       <form className="panel" onSubmit={search}>
         <div className="form-row">
-          <label>学员姓名<input value={filters.keyword} onChange={(e) => setFilters({ ...filters, keyword: e.target.value })} placeholder="姓名或联系方式" /></label>
+          <label>学员姓名<input value={filters.keyword} onChange={(e) => setFilters({ ...filters, keyword: e.target.value })} placeholder="姓名、编号、家长或联系方式" /></label>
           <label>学员状态<select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">全部状态</option><option value="active">在读</option><option value="inactive">停课</option><option value="graduated">结课</option></select></label>
           <label>报读校区<select value={filters.campusId} onChange={(e) => setFilters({ ...filters, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
-          <label>性别<select value={filters.gender} onChange={(e) => setFilters({ ...filters, gender: e.target.value })}><option value="">全部</option><option value="male">男</option><option value="female">女</option></select></label>
+          <label>报读班级<select value={filters.classId} onChange={(e) => setFilters({ ...filters, classId: e.target.value })}><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        </div>
+        <details className="filter-more">
+          <summary><SlidersHorizontal size={14} />更多筛选</summary>
+          <div className="form-row" style={{ marginTop: 12, marginBottom: 4 }}>
+            <label>课程顾问<select value={filters.advisorId} onChange={(e) => setFilters({ ...filters, advisorId: e.target.value })}><option value="">全部顾问</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select></label>
+            <label>性别<select value={filters.gender} onChange={(e) => setFilters({ ...filters, gender: e.target.value })}><option value="">全部</option><option value="male">男</option><option value="female">女</option></select></label>
+            <label>家长手机号<input value={filters.phone} onChange={(e) => setFilters({ ...filters, phone: e.target.value })} placeholder="支持模糊搜索" /></label>
+            <label>来源<input value={filters.source} onChange={(e) => setFilters({ ...filters, source: e.target.value })} placeholder="转介绍、自然到访等" /></label>
+            <label>报名开始<input type="date" value={filters.enrollmentStart} onChange={(e) => setFilters({ ...filters, enrollmentStart: e.target.value })} /></label>
+            <label>报名结束<input type="date" value={filters.enrollmentEnd} onChange={(e) => setFilters({ ...filters, enrollmentEnd: e.target.value })} /></label>
+          </div>
+        </details>
+        <div className="toolbar" style={{ margin: '12px 0 0' }}>
           <button className="btn primary icon-text" type="submit"><Search size={15} />查询</button>
-          <button className="btn" type="button" onClick={() => setFilters({ keyword: '', status: 'active', campusId: '', gender: '', page: 1, pageSize: 20 })}>清空筛选</button>
+          <button className="btn" type="button" onClick={() => setFilters({ keyword: '', status: 'active', campusId: '', gender: '', advisorId: '', classId: '', phone: '', source: '', enrollmentStart: '', enrollmentEnd: '', page: 1, pageSize: 20 })}>清空筛选</button>
         </div>
       </form>
 
@@ -200,40 +249,64 @@ export default function StudentsPage() {
         <span>在读 <b>{data.summary.active}</b></span>
         <span>停课 <b>{data.summary.inactive}</b></span>
         <span>结课 <b>{data.summary.graduated}</b></span>
+        <span>待完善档案 <b>{data.summary.profileIncomplete}</b></span>
+        <span>欠费学员 <b>{data.summary.arrears}</b></span>
       </div>
 
       <div className="toolbar">
-        <select className="btn" value="" onChange={(e) => batchUpdate(e.target.value)}>
-          <option value="">批量调整状态</option>
-          <option value="active">设为在读</option>
-          <option value="inactive">设为停课</option>
-          <option value="graduated">设为结课</option>
-        </select>
+        <select className="btn" value={batchForm.status} onChange={(e) => setBatchForm({ ...batchForm, status: e.target.value })}><option value="">调整状态</option><option value="active">设为在读</option><option value="inactive">设为停课</option><option value="graduated">设为结课</option></select>
+        <select className="btn" value={batchForm.campusId} onChange={(e) => setBatchForm({ ...batchForm, campusId: e.target.value })}><option value="">调整校区</option>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select>
+        <select className="btn" value={batchForm.advisorId} onChange={(e) => setBatchForm({ ...batchForm, advisorId: e.target.value })}><option value="">指定课程顾问</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}</option>)}</select>
+        <button className="btn primary" type="button" disabled={!selected.length || (!batchForm.status && !batchForm.campusId && !batchForm.advisorId)} onClick={applyBatch}>应用到已选</button>
         <button className="btn icon-text" onClick={exportCsv}><Download size={15} />导出当前结果</button>
         <span className="subtitle">已选择 {selected.length} 人</span>
+        <span className="spacer" />
+        <details className="column-menu">
+          <summary className="btn icon-text"><Columns3 size={15} />列设置</summary>
+          <div className="column-menu-popover">
+            {COLUMN_DEFS.map((column) => <label key={column.key}><input type="checkbox" checked={Boolean(visibleColumns[column.key])} onChange={(e) => setVisibleColumns({ ...visibleColumns, [column.key]: e.target.checked })} />{column.label}</label>)}
+          </div>
+        </details>
       </div>
 
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th><input type="checkbox" checked={data.items.length > 0 && selected.length === data.items.length} onChange={(e) => toggleAll(e.target.checked)} /></th><th>学员姓名</th><th>学员状态</th><th>报读校区</th><th>报读班级</th><th>性别</th><th>生日</th><th>联系方式</th><th>来源</th><th>课程顾问</th><th>报名时间</th></tr></thead>
+            <thead><tr>
+              <th><input type="checkbox" checked={data.items.length > 0 && selected.length === data.items.length} onChange={(e) => toggleAll(e.target.checked)} /></th>
+              <th>学员姓名</th><th>学员状态</th><th>报读校区</th><th>报读班级</th>
+              {visibleColumns.studentNo && <th>学员编号</th>}
+              {visibleColumns.gender && <th>性别</th>}
+              {visibleColumns.birthday && <th>生日</th>}
+              {visibleColumns.age && <th>年龄</th>}
+              <th>主要联系人</th>
+              {visibleColumns.source && <th>来源</th>}
+              {visibleColumns.advisor && <th>课程顾问</th>}
+              {visibleColumns.profile && <th>档案状态</th>}
+              {visibleColumns.arrears && <th>欠费提醒</th>}
+              <th>报名时间</th>
+            </tr></thead>
             <tbody>
               {data.items.map((student) => (
                 <tr key={student.id}>
                   <td><input type="checkbox" checked={selected.includes(student.id)} onChange={(e) => toggleOne(student.id, e.target.checked)} /></td>
-                  <td><Link to={`/students/${student.id}`}>{student.name}</Link></td>
+                  <td><Link to={`/students/${student.id}`}>{student.name}</Link><div className="subtitle">ID {student.id}</div></td>
                   <td><span className={`badge ${STATUS_CLASSES[student.status] ?? ''}`}>{STATUS_LABELS[student.status] ?? student.status}</span></td>
                   <td>{student.campus_name ?? '-'}</td>
                   <td>{student.class_names || '-'}</td>
-                  <td>{student.gender ?? '-'}</td>
-                  <td>{student.birthday?.slice(0, 10) ?? '-'}</td>
-                  <td>{student.guardian_phone ?? '-'}</td>
-                  <td>{student.source ?? '-'}</td>
-                  <td>{student.advisor_name ?? '-'}</td>
+                  {visibleColumns.studentNo && <td>{student.student_no ?? '-'}</td>}
+                  {visibleColumns.gender && <td>{student.gender ?? '-'}</td>}
+                  {visibleColumns.birthday && <td>{student.birthday?.slice(0, 10) ?? '-'}</td>}
+                  {visibleColumns.age && <td>{student.age ?? '-'}</td>}
+                  <td><b>{student.primary_guardian_name ?? '家长'}</b><div className="subtitle">{student.primary_guardian_phone ?? student.guardian_phone ?? '-'}</div></td>
+                  {visibleColumns.source && <td>{student.source ?? '-'}</td>}
+                  {visibleColumns.advisor && <td>{student.advisor_name ?? '-'}</td>}
+                  {visibleColumns.profile && <td><span className={`badge ${student.profile_complete ? 'green' : 'orange'}`}>{student.profile_complete ? '档案完整' : '待完善'}</span></td>}
+                  {visibleColumns.arrears && <td>{student.has_arrears ? <span className="badge red">有欠费</span> : <span className="subtitle">无</span>}</td>}
                   <td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td>
                 </tr>
               ))}
-              {data.items.length === 0 && <tr><td colSpan={11}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>没有符合条件的学员</p></div></td></tr>}
+              {data.items.length === 0 && <tr><td colSpan={columnCount}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>没有符合条件的学员</p></div></td></tr>}
             </tbody>
           </table>
         </div>

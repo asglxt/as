@@ -72,6 +72,10 @@ export async function studentRoutes(app: FastifyInstance) {
       gender?: string;
       classId?: string;
       phone?: string;
+      advisorId?: string;
+      source?: string;
+      enrollmentStart?: string;
+      enrollmentEnd?: string;
       page?: string;
       pageSize?: string;
     };
@@ -90,11 +94,13 @@ export async function studentRoutes(app: FastifyInstance) {
     }
     if (query.keyword?.trim()) {
       params.push(`%${query.keyword.trim()}%`);
-      where.push(`(s.name ILIKE $${params.length} OR COALESCE(s.student_no, '') ILIKE $${params.length} OR COALESCE(s.guardian_phone, '') ILIKE $${params.length})`);
+      where.push(`(s.name ILIKE $${params.length} OR COALESCE(s.student_no, '') ILIKE $${params.length} OR COALESCE(s.guardian_phone, '') ILIKE $${params.length}
+        OR EXISTS (SELECT 1 FROM student_guardians sg WHERE sg.student_id=s.id AND (COALESCE(sg.name,'') ILIKE $${params.length} OR COALESCE(sg.phone,'') ILIKE $${params.length})))`);
     }
     if (query.phone?.trim()) {
       params.push(`%${query.phone.trim()}%`);
-      where.push(`COALESCE(s.guardian_phone, '') ILIKE $${params.length}`);
+      where.push(`(COALESCE(s.guardian_phone, '') ILIKE $${params.length}
+        OR EXISTS (SELECT 1 FROM student_guardians sg WHERE sg.student_id=s.id AND COALESCE(sg.phone,'') ILIKE $${params.length}))`);
     }
     if (query.classId) {
       params.push(Number(query.classId));
@@ -115,19 +121,52 @@ export async function studentRoutes(app: FastifyInstance) {
       params.push(query.gender === 'male' ? '男' : '女');
       where.push(`s.gender = $${params.length}`);
     }
+    if (query.advisorId) {
+      params.push(Number(query.advisorId));
+      where.push(`s.advisor_id = $${params.length}`);
+    }
+    if (query.source?.trim()) {
+      params.push(query.source.trim());
+      where.push(`s.source = $${params.length}`);
+    }
+    if (query.enrollmentStart) {
+      params.push(query.enrollmentStart);
+      where.push(`s.enrollment_date >= $${params.length}::date`);
+    }
+    if (query.enrollmentEnd) {
+      params.push(query.enrollmentEnd);
+      where.push(`s.enrollment_date <= $${params.length}::date`);
+    }
 
     const baseWhere = where.join(' AND ');
     const summary = (await app.pool.query(
       `SELECT COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE s.status = 'active')::int AS active,
               COUNT(*) FILTER (WHERE s.status = 'inactive')::int AS inactive,
-              COUNT(*) FILTER (WHERE s.status = 'graduated')::int AS graduated
+              COUNT(*) FILTER (WHERE s.status = 'graduated')::int AS graduated,
+              COUNT(*) FILTER (WHERE NOT (
+                COALESCE((SELECT sg.phone FROM student_guardians sg WHERE sg.student_id=s.id ORDER BY sg.is_primary DESC,sg.id LIMIT 1), s.guardian_phone) IS NOT NULL
+                AND s.school_name IS NOT NULL AND s.grade IS NOT NULL AND s.address IS NOT NULL
+                AND s.advisor_id IS NOT NULL AND s.enrollment_date IS NOT NULL
+              ))::int AS profile_incomplete,
+              COUNT(*) FILTER (WHERE EXISTS (
+                SELECT 1 FROM orders o WHERE o.student_id=s.id AND o.status <> 'cancelled' AND o.arrears > 0
+              ))::int AS arrears
        FROM students s WHERE ${baseWhere}`,
       params
     )).rows[0];
     const listParams = [...params, pageSize, (page - 1) * pageSize];
     const items = (await app.pool.query(
       `SELECT s.*, camp.name AS campus_name, advisor.display_name AS advisor_name,
+              (SELECT sg.name FROM student_guardians sg WHERE sg.student_id=s.id ORDER BY sg.is_primary DESC,sg.id LIMIT 1) AS primary_guardian_name,
+              COALESCE((SELECT sg.phone FROM student_guardians sg WHERE sg.student_id=s.id ORDER BY sg.is_primary DESC,sg.id LIMIT 1), s.guardian_phone) AS primary_guardian_phone,
+              CASE WHEN s.birthday IS NULL THEN NULL ELSE DATE_PART('year', AGE(CURRENT_DATE, s.birthday))::int END AS age,
+              (
+                COALESCE((SELECT sg.phone FROM student_guardians sg WHERE sg.student_id=s.id ORDER BY sg.is_primary DESC,sg.id LIMIT 1), s.guardian_phone) IS NOT NULL
+                AND s.school_name IS NOT NULL AND s.grade IS NOT NULL AND s.address IS NOT NULL
+                AND s.advisor_id IS NOT NULL AND s.enrollment_date IS NOT NULL
+              ) AS profile_complete,
+              EXISTS (SELECT 1 FROM orders o WHERE o.student_id=s.id AND o.status <> 'cancelled' AND o.arrears > 0) AS has_arrears,
               COALESCE((
                 SELECT STRING_AGG(c.name, '、' ORDER BY c.id)
                 FROM class_students cs
@@ -152,24 +191,34 @@ export async function studentRoutes(app: FastifyInstance) {
         total: Number(summary.total),
         active: Number(summary.active),
         inactive: Number(summary.inactive),
-        graduated: Number(summary.graduated)
+        graduated: Number(summary.graduated),
+        profileIncomplete: Number(summary.profile_incomplete),
+        arrears: Number(summary.arrears)
       }
     };
   });
 
   app.post('/batch', { preHandler: [authGuard, requireRole('admin')] }, async (request, reply) => {
-    const body = request.body as { ids?: number[]; status?: string; campusId?: number };
+    const body = request.body as { ids?: number[]; status?: string; campusId?: number; advisorId?: number };
     const ids = (body.ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0);
     if (!ids.length) return reply.code(400).send({ error: 'ids required' });
     if (body.status && !STUDENT_STATUSES.has(body.status)) return reply.code(400).send({ error: 'invalid status' });
-    if (!body.status && !body.campusId) return reply.code(400).send({ error: 'status or campusId required' });
+    if (!body.status && !body.campusId && !body.advisorId) return reply.code(400).send({ error: 'status, campusId or advisorId required' });
 
     const result = await app.pool.query(
       `UPDATE students
        SET status = COALESCE($1, status),
-           campus_id = COALESCE($2, campus_id)
-       WHERE id = ANY($3::bigint[])`,
-      [body.status ?? null, body.campusId ?? null, ids]
+           campus_id = COALESCE($2, campus_id),
+           advisor_id = COALESCE($3, advisor_id)
+       WHERE id = ANY($4::bigint[])`,
+      [body.status ?? null, body.campusId ?? null, body.advisorId ?? null, ids]
+    );
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       SELECT $1, 'student.batch_update', 'student', id,
+              jsonb_strip_nulls(jsonb_build_object('status', $2::text, 'campusId', $3::bigint, 'advisorId', $4::bigint))
+       FROM unnest($5::bigint[]) AS id`,
+      [request.user!.id, body.status ?? null, body.campusId ?? null, body.advisorId ?? null, ids]
     );
     return { count: result.rowCount ?? 0 };
   });
@@ -244,6 +293,11 @@ export async function studentRoutes(app: FastifyInstance) {
         ]
       );
     }
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       VALUES ($1, 'student.create', 'student', $2, jsonb_build_object('name', $3::text))`,
+      [request.user!.id, student.id, student.name]
+    );
     return student;
   });
 
@@ -264,6 +318,11 @@ export async function studentRoutes(app: FastifyInstance) {
        VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), $5)
        RETURNING id, type, content, occurred_at, created_by`,
       [studentId, body.type ?? 'note', body.content.trim(), body.occurredAt ?? null, request.user!.id]
+    );
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       VALUES ($1, 'student.growth.create', 'student', $2, jsonb_build_object('type', $3::text))`,
+      [request.user!.id, studentId, body.type ?? 'note']
     );
     return result.rows[0];
   });
@@ -327,6 +386,11 @@ export async function studentRoutes(app: FastifyInstance) {
       ]
     );
     if (!result.rowCount) return reply.code(404).send({ error: 'student not found' });
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       VALUES ($1, 'student.update', 'student', $2, $3::jsonb)`,
+      [request.user!.id, id, JSON.stringify(body)]
+    );
     return result.rows[0];
   });
 
@@ -340,6 +404,11 @@ export async function studentRoutes(app: FastifyInstance) {
        ON CONFLICT (class_id, student_id) DO UPDATE SET left_at = NULL
        RETURNING *`,
       [body.classId, studentId]
+    );
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       VALUES ($1, 'student.class.add', 'student', $2, jsonb_build_object('classId', $3::bigint))`,
+      [request.user!.id, studentId, body.classId]
     );
     return result.rows[0];
   });
@@ -362,6 +431,11 @@ export async function studentRoutes(app: FastifyInstance) {
          VALUES ($1, $2)
          ON CONFLICT (class_id, student_id) DO UPDATE SET left_at = NULL`,
         [body.toClassId, studentId]
+      );
+      await client.query(
+        `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+         VALUES ($1, 'student.transfer', 'student', $2, jsonb_build_object('fromClassId', $3::bigint, 'toClassId', $4::bigint))`,
+        [request.user!.id, studentId, body.fromClassId, body.toClassId]
       );
       await client.query('COMMIT');
     } catch (err) {
@@ -402,6 +476,22 @@ async function loadStudentDetail(app: FastifyInstance, studentId: number) {
      LEFT JOIN users u ON u.id = c.teacher_id
      WHERE cs.student_id = $1 AND cs.left_at IS NULL
      ORDER BY c.id DESC`,
+    [studentId]
+  )).rows.map((row) => ({ ...row, id: Number(row.id) }));
+
+  const attendanceRecords = (await app.pool.query(
+    `SELECT ar.id, ar.status, ar.hours_deducted::float8 AS hours_deducted, ar.remark, ar.created_at,
+            sch.schedule_date::text AS schedule_date, sch.start_time::text AS start_time,
+            c.name AS class_name, l.name AS lesson_name, u.display_name AS teacher_name
+     FROM attendance_records ar
+     JOIN teaching_logs tl ON tl.id = ar.teaching_log_id
+     JOIN classes c ON c.id = tl.class_id
+     LEFT JOIN lessons l ON l.id = c.lesson_id
+     LEFT JOIN users u ON u.id = tl.teacher_id
+     LEFT JOIN schedules sch ON sch.id = tl.schedule_id
+     WHERE ar.student_id = $1
+     ORDER BY COALESCE(sch.schedule_date, tl.taught_at::date, ar.created_at::date) DESC, ar.id DESC
+     LIMIT 100`,
     [studentId]
   )).rows.map((row) => ({ ...row, id: Number(row.id) }));
 
@@ -458,5 +548,15 @@ async function loadStudentDetail(app: FastifyInstance, studentId: number) {
     ? { balance: Number(accountRow.balance), points: Number(accountRow.points), updatedAt: accountRow.updated_at }
     : { balance: 0, points: 0, updatedAt: null };
 
-  return { student: toNumberedStudent(student), guardians, classes, scores, growthRecords, orders, account };
+  const auditLogs = (await app.pool.query(
+    `SELECT al.id, al.action, al.detail, al.created_at, u.display_name AS actor_name
+     FROM audit_logs al
+     LEFT JOIN users u ON u.id = al.actor_id
+     WHERE al.entity_type = 'student' AND al.entity_id = $1
+     ORDER BY al.created_at DESC, al.id DESC
+     LIMIT 100`,
+    [studentId]
+  )).rows.map((row) => ({ ...row, id: Number(row.id) }));
+
+  return { student: toNumberedStudent(student), guardians, classes, attendanceRecords, scores, growthRecords, orders, account, auditLogs };
 }
