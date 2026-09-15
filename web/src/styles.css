@@ -370,6 +370,15 @@ button { color: inherit; }
 .quick-action { min-height: 62px; border: 1px solid #e7ecf3; border-radius: 7px; background: #fff; display: grid; place-items: center; text-decoration: none; color: #42526b; font-size: 12px; }
 .quick-action:hover { border-color: #b9c9e5; color: #2457c5; background: #fafcff; }
 
+.modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 20px; background: rgba(18, 28, 45, .46); }
+.modal-card { width: min(760px, 100%); max-height: min(88vh, 780px); overflow: hidden; background: #fff; border: 1px solid #dbe3ee; border-radius: 10px; box-shadow: 0 24px 70px rgba(15, 28, 50, .28); }
+.modal-card form { display: flex; flex-direction: column; max-height: inherit; }
+.modal-header, .modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 18px; }
+.modal-header { border-bottom: 1px solid #e8edf4; }
+.modal-header h2, .modal-header p { margin: 0; }
+.modal-footer { border-top: 1px solid #e8edf4; justify-content: flex-end; }
+.modal-body { padding: 18px; overflow-y: auto; }
+
 @media (max-width: 900px) {
   .app-shell { flex-direction: column; }
   .sidebar { width: 100%; height: auto; min-height: 0; position: static; overflow-x: hidden; }
@@ -390,4 +399,7 @@ button { color: inherit; }
   .stat-card b { font-size: 21px; }
   .form-row label, .form-row input, .form-row select { width: 100%; min-width: 0; }
   .quick-grid { grid-template-columns: 1fr; }
+  .modal-backdrop { padding: 8px; align-items: end; }
+  .modal-card { max-height: 94vh; border-radius: 10px 10px 0 0; }
+  .modal-header, .modal-footer, .modal-body { padding-left: 14px; padding-right: 14px; }
 }

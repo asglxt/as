@@ -39,7 +39,7 @@ export default function RolesPage() {
   const [campuses, setCampuses] = useState<any[]>([]);
   const [current, setCurrent] = useState<Partial<RoleItem>>({ modules: [], campusIds: [] });
   const [editingStaff, setEditingStaff] = useState<StaffItem | null>(null);
-  const [staffForm, setStaffForm] = useState({ department: '', employeeNo: '', isTeacher: false, employmentStatus: 'active', roleIds: [] as number[] });
+  const [staffForm, setStaffForm] = useState({ department: '', employeeNo: '', campusId: '', isTeacher: false, employmentStatus: 'active', contractEndDate: '', roleIds: [] as number[] });
   const [message, setMessage] = useState('');
 
   async function load() {
@@ -56,6 +56,19 @@ export default function RolesPage() {
   }
 
   useEffect(() => { load().catch((err) => setMessage(err.message)); }, []);
+
+  useEffect(() => {
+    if (!editingStaff) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEditingStaff(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = '';
+    };
+  }, [editingStaff]);
 
   function toggleModule(key: string) {
     const modules = current.modules ?? [];
@@ -89,18 +102,30 @@ export default function RolesPage() {
     setStaffForm({
       department: item.department ?? '',
       employeeNo: item.employee_no ?? '',
+      campusId: item.campus_id ? String(item.campus_id) : '',
       isTeacher: item.is_teacher,
       employmentStatus: item.employment_status,
+      contractEndDate: item.contract_end_date?.slice(0, 10) ?? '',
       roleIds: item.roles.map((role) => role.id)
     });
   }
 
   async function saveStaff() {
     if (!editingStaff) return;
-    await api(`/api/roles/staff/${editingStaff.id}`, { method: 'PATCH', body: JSON.stringify(staffForm) });
-    setEditingStaff(null);
-    setMessage('员工角色已更新');
-    await load();
+    try {
+      await api(`/api/roles/staff/${editingStaff.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...staffForm,
+          campusId: staffForm.campusId ? Number(staffForm.campusId) : undefined
+        })
+      });
+      setEditingStaff(null);
+      setMessage('员工角色已更新');
+      await load();
+    } catch (err: any) {
+      setMessage(err.message);
+    }
   }
 
 
@@ -151,20 +176,36 @@ export default function RolesPage() {
       </section>
 
       {editingStaff && (
-        <section className="panel">
-          <div className="panel-header"><h2>编辑员工角色：{editingStaff.display_name}</h2><button className="btn" onClick={() => setEditingStaff(null)}>关闭</button></div>
-          <div className="form-row">
-            <label>工号<input value={staffForm.employeeNo} onChange={(e) => setStaffForm({ ...staffForm, employeeNo: e.target.value })} /></label>
-            <label>部门<input value={staffForm.department} onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })} /></label>
-            <label>是否教师<select value={staffForm.isTeacher ? 'yes' : 'no'} onChange={(e) => setStaffForm({ ...staffForm, isTeacher: e.target.value === 'yes' })}><option value="yes">是</option><option value="no">否</option></select></label>
-            <label>人事状态<select value={staffForm.employmentStatus} onChange={(e) => setStaffForm({ ...staffForm, employmentStatus: e.target.value })}><option value="active">正式员工</option><option value="probation">试用期</option><option value="left">离职</option></select></label>
-          </div>
-          <div className="panel" style={{ background: '#f8fafc' }}>
-            <h2>分配角色（可多选）</h2>
-            <div className="toolbar">{roles.map((role) => <label key={role.id} className="btn"><input type="checkbox" checked={staffForm.roleIds.includes(role.id)} onChange={(e) => setStaffForm({ ...staffForm, roleIds: e.target.checked ? [...staffForm.roleIds, role.id] : staffForm.roleIds.filter((id) => id !== role.id) })} /> {role.name}</label>)}</div>
-          </div>
-          <button className="btn primary icon-text" onClick={saveStaff}><Save size={14} />保存员工角色</button>
-        </section>
+        <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingStaff(null); }}>
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="staff-edit-title">
+            <form onSubmit={(event) => { event.preventDefault(); saveStaff(); }}>
+              <div className="modal-header">
+                <div><h2 id="staff-edit-title">编辑员工角色</h2><p className="subtitle">{editingStaff.display_name} · {editingStaff.username}</p></div>
+                <button className="btn" type="button" onClick={() => setEditingStaff(null)}>关闭</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-row">
+                  <label>工号<input value={staffForm.employeeNo} onChange={(e) => setStaffForm({ ...staffForm, employeeNo: e.target.value })} /></label>
+                  <label>部门<input value={staffForm.department} onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })} /></label>
+                  <label>管辖校区<select value={staffForm.campusId} onChange={(e) => setStaffForm({ ...staffForm, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
+                </div>
+                <div className="form-row">
+                  <label>是否教师<select value={staffForm.isTeacher ? 'yes' : 'no'} onChange={(e) => setStaffForm({ ...staffForm, isTeacher: e.target.value === 'yes' })}><option value="yes">是</option><option value="no">否</option></select></label>
+                  <label>人事状态<select value={staffForm.employmentStatus} onChange={(e) => setStaffForm({ ...staffForm, employmentStatus: e.target.value })}><option value="active">正式员工</option><option value="probation">试用期</option><option value="left">离职</option></select></label>
+                  <label>合同到期日<input type="date" value={staffForm.contractEndDate} onChange={(e) => setStaffForm({ ...staffForm, contractEndDate: e.target.value })} /></label>
+                </div>
+                <div className="panel" style={{ background: '#f8fafc', marginBottom: 0 }}>
+                  <h2>分配角色（可多选）</h2>
+                  <div className="toolbar">{roles.map((role) => <label key={role.id} className="btn"><input type="checkbox" checked={staffForm.roleIds.includes(role.id)} onChange={(e) => setStaffForm({ ...staffForm, roleIds: e.target.checked ? [...staffForm.roleIds, role.id] : staffForm.roleIds.filter((id) => id !== role.id) })} /> {role.name}</label>)}</div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn" type="button" onClick={() => setEditingStaff(null)}>取消</button>
+                <button className="btn primary icon-text" type="submit"><Save size={14} />保存员工角色</button>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
     </Shell>
   );
