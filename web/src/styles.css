@@ -379,6 +379,21 @@ button { color: inherit; }
 .modal-footer { border-top: 1px solid #e8edf4; justify-content: flex-end; }
 .modal-body { padding: 18px; overflow-y: auto; }
 
+.org-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr); gap: 16px; align-items: start; }
+.org-tree { display: grid; gap: 12px; }
+.org-branch { display: grid; gap: 10px; }
+.org-children { display: grid; gap: 10px; margin-left: 20px; padding-left: 16px; border-left: 2px solid #dce6f4; }
+.org-card { padding: 12px 13px; border: 1px solid #e1e8f2; border-radius: 8px; background: #fff; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; }
+.org-card:hover { border-color: #aebfdc; box-shadow: 0 6px 18px rgba(36, 62, 105, .08); }
+.org-card.selected { border-color: #7da2ec; background: #f4f8ff; box-shadow: 0 0 0 2px rgba(37,99,235,.08); }
+.org-card-title, .org-card-meta, .org-unassigned { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.org-card-title b { font-size: 14px; color: #1e2d49; }
+.org-card-title span, .org-card-meta { color: #7a879a; font-size: 11px; }
+.org-card-meta { margin-top: 7px; }
+.org-unassigned { width: 100%; margin-top: 12px; padding: 12px 13px; border: 1px dashed #cbd7e8; border-radius: 8px; background: #fafcff; color: #5f6d82; cursor: pointer; }
+.org-unassigned span { display: inline-flex; align-items: center; gap: 7px; }
+.org-unassigned.selected { border-color: #7da2ec; background: #f1f6ff; color: #2457c5; }
+
 @media (max-width: 900px) {
   .app-shell { flex-direction: column; }
   .sidebar { width: 100%; height: auto; min-height: 0; position: static; overflow-x: hidden; }
@@ -391,6 +406,7 @@ button { color: inherit; }
   .topbar { top: 58px; padding: 0 14px; }
   .content { padding: 16px 12px 28px; }
   .workbench-grid { grid-template-columns: 1fr; }
+  .org-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {

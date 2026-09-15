@@ -14,7 +14,7 @@ export async function roleRoutes(app: FastifyInstance) {
   app.get('/staff', { preHandler: [authGuard, requireModule('roles')] }, async () => {
     const rows = (await app.pool.query(
       `SELECT u.id, u.username, u.display_name, u.role, u.campus_id,
-              u.employee_no, u.department, u.is_teacher, u.employment_status, u.contract_end_date,
+              u.employee_no, u.department, u.department_id, u.position_title, u.is_teacher, u.employment_status, u.contract_end_date,
               camp.name AS campus_name,
               COALESCE(
                 JSON_AGG(JSON_BUILD_OBJECT('id', r.id, 'name', r.name)
@@ -33,6 +33,7 @@ export async function roleRoutes(app: FastifyInstance) {
       ...row,
       id: Number(row.id),
       campus_id: row.campus_id === null ? null : Number(row.campus_id),
+      department_id: row.department_id === null ? null : Number(row.department_id),
       roles: (typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles).map((role: any) => ({
         id: Number(role.id),
         name: role.name
@@ -46,6 +47,8 @@ export async function roleRoutes(app: FastifyInstance) {
       displayName?: string;
       employeeNo?: string;
       department?: string;
+      departmentId?: number | null;
+      positionTitle?: string | null;
       campusId?: number;
       isTeacher?: boolean;
       employmentStatus?: string;
@@ -54,6 +57,14 @@ export async function roleRoutes(app: FastifyInstance) {
     };
     const exists = await app.pool.query("SELECT 1 FROM users WHERE id = $1 AND role IN ('admin','teacher')", [userId]);
     if (!exists.rowCount) return reply.code(404).send({ error: 'staff not found' });
+    const hasDepartmentId = Object.prototype.hasOwnProperty.call(body, 'departmentId');
+    const hasPositionTitle = Object.prototype.hasOwnProperty.call(body, 'positionTitle');
+    let departmentName: string | null = null;
+    if (body.departmentId) {
+      const department = await app.pool.query('SELECT name FROM departments WHERE id=$1', [body.departmentId]);
+      if (!department.rowCount) return reply.code(404).send({ error: 'department not found' });
+      departmentName = department.rows[0].name;
+    }
     const client = await app.pool.connect();
     try {
       await client.query('BEGIN');
@@ -61,12 +72,14 @@ export async function roleRoutes(app: FastifyInstance) {
         `UPDATE users SET
           display_name = COALESCE($1, display_name),
           employee_no = COALESCE($2, employee_no),
-          department = COALESCE($3, department),
           campus_id = COALESCE($4, campus_id),
           is_teacher = COALESCE($5, is_teacher),
           employment_status = COALESCE($6, employment_status),
-          contract_end_date = COALESCE($7::date, contract_end_date)
-         WHERE id = $8`,
+          contract_end_date = COALESCE($7::date, contract_end_date),
+          department_id = CASE WHEN $8::boolean THEN $9::bigint ELSE department_id END,
+          department = CASE WHEN $8::boolean THEN $10::text ELSE COALESCE($3, department) END,
+          position_title = CASE WHEN $11::boolean THEN $12::text ELSE position_title END
+         WHERE id = $13`,
         [
           body.displayName ?? null,
           body.employeeNo ?? null,
@@ -75,6 +88,11 @@ export async function roleRoutes(app: FastifyInstance) {
           body.isTeacher ?? null,
           body.employmentStatus ?? null,
           body.contractEndDate || null,
+          hasDepartmentId,
+          body.departmentId ?? null,
+          departmentName,
+          hasPositionTitle,
+          body.positionTitle?.trim() || null,
           userId
         ]
       );

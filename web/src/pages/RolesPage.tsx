@@ -26,6 +26,9 @@ interface StaffItem {
   campus_name: string | null;
   employee_no: string | null;
   department: string | null;
+  department_id: number | null;
+  department_name: string | null;
+  position_title: string | null;
   is_teacher: boolean;
   employment_status: string;
   contract_end_date: string | null;
@@ -37,22 +40,25 @@ export default function RolesPage() {
   const [groups, setGroups] = useState<PermissionGroup[]>([]);
   const [staff, setStaff] = useState<StaffItem[]>([]);
   const [campuses, setCampuses] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [current, setCurrent] = useState<Partial<RoleItem>>({ modules: [], campusIds: [] });
   const [editingStaff, setEditingStaff] = useState<StaffItem | null>(null);
-  const [staffForm, setStaffForm] = useState({ department: '', employeeNo: '', campusId: '', isTeacher: false, employmentStatus: 'active', contractEndDate: '', roleIds: [] as number[] });
+  const [staffForm, setStaffForm] = useState({ department: '', departmentId: '', positionTitle: '', employeeNo: '', campusId: '', isTeacher: false, employmentStatus: 'active', contractEndDate: '', roleIds: [] as number[] });
   const [message, setMessage] = useState('');
 
   async function load() {
-    const [roleList, groupList, staffList, campusList] = await Promise.all([
+    const [roleList, groupList, staffList, campusList, departmentList] = await Promise.all([
       api<RoleItem[]>('/api/roles'),
       api<PermissionGroup[]>('/api/roles/permission-groups'),
       api<StaffItem[]>('/api/roles/staff'),
-      api<any[]>('/api/campuses').catch(() => [])
+      api<any[]>('/api/campuses').catch(() => []),
+      api<any[]>('/api/organization/departments').catch(() => [])
     ]);
     setRoles(roleList);
     setGroups(groupList);
     setStaff(staffList);
     setCampuses(campusList);
+    setDepartments(departmentList);
   }
 
   useEffect(() => { load().catch((err) => setMessage(err.message)); }, []);
@@ -101,6 +107,8 @@ export default function RolesPage() {
     setEditingStaff(item);
     setStaffForm({
       department: item.department ?? '',
+      departmentId: item.department_id ? String(item.department_id) : '',
+      positionTitle: item.position_title ?? '',
       employeeNo: item.employee_no ?? '',
       campusId: item.campus_id ? String(item.campus_id) : '',
       isTeacher: item.is_teacher,
@@ -117,7 +125,8 @@ export default function RolesPage() {
         method: 'PATCH',
         body: JSON.stringify({
           ...staffForm,
-          campusId: staffForm.campusId ? Number(staffForm.campusId) : undefined
+          campusId: staffForm.campusId ? Number(staffForm.campusId) : undefined,
+          departmentId: staffForm.departmentId ? Number(staffForm.departmentId) : null
         })
       });
       setEditingStaff(null);
@@ -171,7 +180,7 @@ export default function RolesPage() {
       <section className="panel">
         <div className="panel-header"><h2>员工角色</h2><span className="subtitle"><Users size={14} /> 共 {staff.length} 名员工</span></div>
         <div className="table-wrap"><table className="table"><thead><tr><th>员工</th><th>部门</th><th>是否教师</th><th>管辖校区</th><th>人事状态</th><th>角色</th><th>操作</th></tr></thead><tbody>
-          {staff.map((item) => <tr key={item.id}><td><b>{item.display_name}</b><div className="subtitle">{item.username ?? '-'}</div></td><td>{item.department ?? '-'}</td><td>{item.is_teacher ? '是' : '否'}</td><td>{item.campus_name ?? '全部校区'}</td><td><span className="badge green">{item.employment_status === 'active' ? '正式员工' : item.employment_status}</span></td><td>{item.roles.map((role) => <span className="badge blue" key={role.id} style={{ marginRight: 5 }}>{role.name}</span>)}</td><td><button className="btn icon-text" onClick={() => startEditStaff(item)}><UserCog size={14} />编辑</button></td></tr>)}
+          {staff.map((item) => <tr key={item.id}><td><b>{item.display_name}</b><div className="subtitle">{item.username ?? '-'}</div></td><td>{item.department_name ?? item.department ?? '-'}</td><td>{item.is_teacher ? '是' : '否'}</td><td>{item.campus_name ?? '全部校区'}</td><td><span className="badge green">{item.employment_status === 'active' ? '正式员工' : item.employment_status}</span></td><td>{item.roles.map((role) => <span className="badge blue" key={role.id} style={{ marginRight: 5 }}>{role.name}</span>)}</td><td><button className="btn icon-text" onClick={() => startEditStaff(item)}><UserCog size={14} />编辑</button></td></tr>)}
         </tbody></table></div>
       </section>
 
@@ -186,13 +195,14 @@ export default function RolesPage() {
               <div className="modal-body">
                 <div className="form-row">
                   <label>工号<input value={staffForm.employeeNo} onChange={(e) => setStaffForm({ ...staffForm, employeeNo: e.target.value })} /></label>
-                  <label>部门<input value={staffForm.department} onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })} /></label>
+                  <label>所属部门<select value={staffForm.departmentId} onChange={(e) => setStaffForm({ ...staffForm, departmentId: e.target.value })}><option value="">未分配</option>{departments.filter((item) => !staffForm.campusId || Number(item.campus_id) === Number(staffForm.campusId)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
                   <label>管辖校区<select value={staffForm.campusId} onChange={(e) => setStaffForm({ ...staffForm, campusId: e.target.value })}><option value="">全部校区</option>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
                 </div>
                 <div className="form-row">
                   <label>是否教师<select value={staffForm.isTeacher ? 'yes' : 'no'} onChange={(e) => setStaffForm({ ...staffForm, isTeacher: e.target.value === 'yes' })}><option value="yes">是</option><option value="no">否</option></select></label>
                   <label>人事状态<select value={staffForm.employmentStatus} onChange={(e) => setStaffForm({ ...staffForm, employmentStatus: e.target.value })}><option value="active">正式员工</option><option value="probation">试用期</option><option value="left">离职</option></select></label>
                   <label>合同到期日<input type="date" value={staffForm.contractEndDate} onChange={(e) => setStaffForm({ ...staffForm, contractEndDate: e.target.value })} /></label>
+                  <label>岗位名称<input value={staffForm.positionTitle} onChange={(e) => setStaffForm({ ...staffForm, positionTitle: e.target.value })} placeholder="如 英语教师、教务主管" /></label>
                 </div>
                 <div className="panel" style={{ background: '#f8fafc', marginBottom: 0 }}>
                   <h2>分配角色（可多选）</h2>

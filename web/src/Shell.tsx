@@ -3,7 +3,7 @@ import {
   BarChart3, Bell, BookOpen, Boxes, Building2, CalendarDays, CheckSquare, ChevronDown,
   CircleDollarSign, ClipboardList, DoorOpen, FileSpreadsheet, GraduationCap,
   Import, LayoutDashboard, LogOut, MessageSquare, Receipt, School,
-  ShieldCheck, Smartphone, Undo2, Upload, Users, Wallet
+  Network, ShieldCheck, Smartphone, Undo2, Upload, Users, Wallet
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from './auth.tsx';
@@ -17,7 +17,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/classrooms': '教室', '/schedules': '排课', '/enrollments': '报读', '/attendance': '记上课',
   '/scores': '成绩', '/comments': '课堂点评', '/homework': '作业', '/orders': '订单',
   '/accounts': '学员账户', '/refunds': '退费', '/reports': '报表', '/import': '导入',
-  '/roles': '角色权限', '/campuses': '校区设置'
+  '/roles': '角色权限', '/organization': '组织架构', '/campuses': '校区设置'
   , '/notifications': '通知公告', '/materials': '教材与杂费'
 };
 
@@ -70,6 +70,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     },
     {
       key: 'internal', label: '内部管理', items: [
+        { to: '/organization', label: '组织架构', icon: <Network size={17} />, module: 'org' },
         { to: '/roles', label: '角色与员工', icon: <ShieldCheck size={17} />, module: 'roles' },
         { to: '/campuses', label: '校区设置', icon: <Building2 size={17} />, module: 'org' },
         { to: '/notifications', label: '通知公告', icon: <Bell size={17} />, module: 'notifications' }

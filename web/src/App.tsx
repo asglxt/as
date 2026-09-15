@@ -9,6 +9,7 @@ import ClassesPage from './pages/ClassesPage.tsx';
 import ImportPage from './pages/ImportPage.tsx';
 import MyScoresPage from './pages/MyScoresPage.tsx';
 import RolesPage from './pages/RolesPage.tsx';
+import OrganizationPage from './pages/OrganizationPage.tsx';
 import LessonsPage from './pages/LessonsPage.tsx';
 import ClassroomsPage from './pages/ClassroomsPage.tsx';
 import SchedulesPage from './pages/SchedulesPage.tsx';
@@ -61,6 +62,7 @@ export default function App() {
       <Route path="/import" element={<RequireAuth><ImportPage /></RequireAuth>} />
       <Route path="/my-scores" element={<RequireAuth><MyScoresPage /></RequireAuth>} />
       <Route path="/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
+      <Route path="/organization" element={<RequireAuth><OrganizationPage /></RequireAuth>} />
       <Route path="/campuses" element={<RequireAuth><CampusesPage /></RequireAuth>} />
       <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
       <Route path="/materials" element={<RequireAuth><MaterialsPage /></RequireAuth>} />

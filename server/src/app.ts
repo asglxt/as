@@ -18,6 +18,7 @@ import { report2Routes } from './routes/reports2.ts';
 import { importRoutes } from './routes/imports.ts';
 import { meRoutes } from './routes/me.ts';
 import { roleRoutes } from './routes/roles.ts';
+import { organizationRoutes } from './routes/organization.ts';
 import { lessonRoutes } from './routes/lessons.ts';
 import { classroomRoutes } from './routes/classrooms.ts';
 import { scheduleRoutes } from './routes/schedules.ts';
@@ -65,6 +66,7 @@ export async function buildApp() {
   await app.register(importRoutes, { prefix: '/api/imports' });
   await app.register(meRoutes, { prefix: '/api/me' });
   await app.register(roleRoutes, { prefix: '/api/roles' });
+  await app.register(organizationRoutes, { prefix: '/api/organization' });
   await app.register(lessonRoutes, { prefix: '/api/lessons' });
   await app.register(classroomRoutes, { prefix: '/api/classrooms' });
   await app.register(scheduleRoutes, { prefix: '/api/schedules' });
