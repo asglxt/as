@@ -42,10 +42,10 @@ export default function DashboardPage() {
       <h1 className="page-title">工作台</h1>
       <p className="page-subtitle">今日待办、经营概况和常用操作集中在这里。</p>
       <div className="cards">
-        <div className="stat-card"><b>{summary?.students ?? 0}</b><span>在读学员</span></div>
-        <div className="stat-card"><b>{summary?.schedulesToday ?? 0}</b><span>今日排课</span></div>
-        <div className="stat-card"><b>{summary?.teachingLogsToday ?? 0}</b><span>今日已记上课</span></div>
-        <div className="stat-card"><b>{summary?.arrearsOrders ?? 0}</b><span>待处理欠费</span></div>
+        <Link className="stat-card dashboard-metric" to="/students?status=active" title="查看在读学员"><b>{summary?.students ?? 0}</b><span>在读学员</span></Link>
+        <Link className="stat-card dashboard-metric" to="/schedules" title="查看今日排课"><b>{summary?.schedulesToday ?? 0}</b><span>今日排课</span></Link>
+        <Link className="stat-card dashboard-metric" to="/attendance" title="查看今日上课记录"><b>{summary?.teachingLogsToday ?? 0}</b><span>今日已记上课</span></Link>
+        <Link className="stat-card dashboard-metric" to="/orders" title="查看待处理欠费"><b>{summary?.arrearsOrders ?? 0}</b><span>待处理欠费</span></Link>
       </div>
 
       <div className="workbench-grid">
