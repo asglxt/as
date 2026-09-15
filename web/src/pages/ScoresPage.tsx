@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { BarChart3, Download, Plus, Search, Save } from 'lucide-react';
+import { BarChart3, ChevronRight, Download, Plus, Search, Save } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api, getToken } from '../api.ts';
 import ScoreAnalyticsPanel from '../components/ScoreAnalyticsPanel.tsx';
@@ -25,8 +25,10 @@ export default function ScoresPage() {
   const [total, setTotal] = useState(0);
   const [dictName, setDictName] = useState('');
   const [message, setMessage] = useState('');
-  const [students, setStudents] = useState<any[]>([]);
   const [analyticsStudentId, setAnalyticsStudentId] = useState('');
+  const [analyticsSelected, setAnalyticsSelected] = useState<any>(null);
+  const [analyticsResults, setAnalyticsResults] = useState<any[]>([]);
+  const [analyticsFilters, setAnalyticsFilters] = useState({ keyword: '', phone: '', classId: '' });
   const [ratings, setRatings] = useState<any>({ rows: [], summary: { total: 0, s: 0, a: 0, qihang: 0 } });
   const [ratingClassId, setRatingClassId] = useState('');
   const [sources, setSources] = useState<any[]>([]);
@@ -42,9 +44,25 @@ export default function ScoresPage() {
 
   useEffect(() => {
     api<any[]>('/api/classes').then(setClasses).catch(() => {});
-    api<any[]>('/api/students').then(setStudents).catch(() => {});
     loadDicts().catch(() => {});
   }, []);
+
+  async function searchAnalyticsStudents() {
+    const params = new URLSearchParams({ page: '1', pageSize: '20' });
+    if (analyticsFilters.keyword.trim()) params.set('keyword', analyticsFilters.keyword.trim());
+    if (analyticsFilters.phone.trim()) params.set('phone', analyticsFilters.phone.trim());
+    if (analyticsFilters.classId) params.set('classId', analyticsFilters.classId);
+    try {
+      const result = await api<{ items: any[] }>(`/api/students/list?${params.toString()}`);
+      setAnalyticsResults(result.items);
+    } catch (err: any) { setMessage(err.message); }
+  }
+
+  useEffect(() => {
+    if (tab !== 'analytics') return;
+    const timer = window.setTimeout(() => { searchAnalyticsStudents(); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [tab, analyticsFilters]);
 
   useEffect(() => {
     if (tab !== 'ratings') return;
@@ -204,7 +222,16 @@ export default function ScoresPage() {
 
       {tab === 'analytics' && (
         <div className="panel">
-          <div className="panel-header"><h2>学员成绩分析</h2><select className="btn" value={analyticsStudentId} onChange={(e) => setAnalyticsStudentId(e.target.value)}><option value="">选择学员</option>{students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></div>
+          <div className="panel-header"><h2>学员成绩分析</h2>{analyticsSelected && <span className="badge blue">当前：{analyticsSelected.name}</span>}</div>
+          <form className="form-row" onSubmit={(e) => { e.preventDefault(); searchAnalyticsStudents(); }}>
+            <label>学员姓名/编号<input value={analyticsFilters.keyword} onChange={(e) => setAnalyticsFilters({ ...analyticsFilters, keyword: e.target.value })} placeholder="输入姓名或编号模糊搜索" /></label>
+            <label>家长手机号<input value={analyticsFilters.phone} onChange={(e) => setAnalyticsFilters({ ...analyticsFilters, phone: e.target.value })} placeholder="输入手机号片段" /></label>
+            <label>班级<select value={analyticsFilters.classId} onChange={(e) => setAnalyticsFilters({ ...analyticsFilters, classId: e.target.value })}><option value="">全部班级</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <button className="btn primary icon-text" type="submit"><Search size={15} />搜索学员</button>
+            <button className="btn" type="button" onClick={() => { setAnalyticsFilters({ keyword: '', phone: '', classId: '' }); setAnalyticsResults([]); setAnalyticsStudentId(''); setAnalyticsSelected(null); }}>清空</button>
+          </form>
+          {analyticsResults.length > 0 && <div className="student-search-results">{analyticsResults.map((student) => <button className={Number(analyticsStudentId) === Number(student.id) ? 'active' : ''} key={student.id} onClick={() => { setAnalyticsStudentId(String(student.id)); setAnalyticsSelected(student); }}><div><b>{student.name}</b><span>{student.class_names || '暂未分班'} · {student.guardian_phone ?? '无手机号'}</span></div><ChevronRight size={15} /></button>)}</div>}
+          {analyticsFilters.keyword || analyticsFilters.phone || analyticsFilters.classId ? analyticsResults.length === 0 && <p className="subtitle">没有匹配的学员</p> : null}
           {analyticsStudentId ? <ScoreAnalyticsPanel studentId={Number(analyticsStudentId)} /> : <p className="subtitle">选择学员后查看成长趋势、班级排名和同年级机构排名。</p>}
         </div>
       )}

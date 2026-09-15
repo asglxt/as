@@ -126,6 +126,27 @@ test('student list filters by keyword and returns pagination summary', async () 
   assert.equal(res.json().page, 1);
 });
 
+test('student list filters by class and guardian phone', async () => {
+  const first = await app.inject({
+    method: 'POST', url: '/api/students', headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '手机筛选甲', guardianPhone: '13812345678' }
+  });
+  await app.inject({
+    method: 'POST', url: '/api/students', headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '手机筛选乙', guardianPhone: '13999999999' }
+  });
+  await app.inject({
+    method: 'POST', url: `/api/students/${first.json().id}/classes`, headers: { authorization: `Bearer ${seed.adminToken}` }, payload: { classId }
+  });
+  const res = await app.inject({
+    method: 'GET', url: `/api/students/list?classId=${classId}&phone=1234&page=1&pageSize=20`,
+    headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().items.length, 1);
+  assert.equal(res.json().items[0].name, '手机筛选甲');
+});
+
 test('batch update changes student status', async () => {
   const create = await app.inject({
     method: 'POST',

@@ -66,6 +66,8 @@ export async function studentRoutes(app: FastifyInstance) {
       status?: string;
       campusId?: string;
       gender?: string;
+      classId?: string;
+      phone?: string;
       page?: string;
       pageSize?: string;
     };
@@ -84,7 +86,18 @@ export async function studentRoutes(app: FastifyInstance) {
     }
     if (query.keyword?.trim()) {
       params.push(`%${query.keyword.trim()}%`);
-      where.push(`(s.name ILIKE $${params.length} OR COALESCE(s.guardian_phone, '') ILIKE $${params.length})`);
+      where.push(`(s.name ILIKE $${params.length} OR COALESCE(s.student_no, '') ILIKE $${params.length} OR COALESCE(s.guardian_phone, '') ILIKE $${params.length})`);
+    }
+    if (query.phone?.trim()) {
+      params.push(`%${query.phone.trim()}%`);
+      where.push(`COALESCE(s.guardian_phone, '') ILIKE $${params.length}`);
+    }
+    if (query.classId) {
+      params.push(Number(query.classId));
+      where.push(`EXISTS (
+        SELECT 1 FROM class_students cs
+        WHERE cs.student_id = s.id AND cs.class_id = $${params.length} AND cs.left_at IS NULL
+      )`);
     }
     if (query.status && STUDENT_STATUSES.has(query.status)) {
       params.push(query.status);
