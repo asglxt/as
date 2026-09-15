@@ -101,6 +101,19 @@ test('student detail returns guardians and growth records', async () => {
   assert.deepEqual(detail.json().growthRecords, []);
 });
 
+test('student saves course advisor and returns advisor name', async () => {
+  const advisorId = (await app.pool.query("SELECT id FROM users WHERE username='teacher'")).rows[0].id;
+  const create = await app.inject({
+    method: 'POST', url: '/api/students', headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '顾问测试学员', advisorId }
+  });
+  assert.equal(create.statusCode, 200);
+  assert.equal(Number(create.json().advisor_id), Number(advisorId));
+  const detail = await app.inject({ method: 'GET', url: `/api/students/${create.json().id}`, headers: { authorization: `Bearer ${seed.adminToken}` } });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.json().student.advisor_name, '教师');
+});
+
 test('student list filters by keyword and returns pagination summary', async () => {
   await app.inject({
     method: 'POST',

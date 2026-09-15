@@ -14,6 +14,7 @@ interface StudentItem {
   birthday: string | null;
   guardian_phone: string | null;
   source: string | null;
+  advisor_name: string | null;
   enrollment_date: string | null;
 }
 
@@ -29,13 +30,14 @@ const STATUS_LABELS: Record<string, string> = { active: '在读', inactive: '停
 const STATUS_CLASSES: Record<string, string> = { active: 'green', inactive: 'orange', graduated: 'blue' };
 const EMPTY_FORM = {
   name: '', studentNo: '', campusId: '', gender: '', birthday: '', schoolName: '', grade: '', address: '',
-  enrollmentDate: '', source: '', notes: '', fatherName: '', fatherPhone: '', fatherWechat: '',
+  enrollmentDate: '', source: '', advisorId: '', notes: '', fatherName: '', fatherPhone: '', fatherWechat: '',
   motherName: '', motherPhone: '', motherWechat: '', guardianName: '', guardianRelation: '', guardianPhone: '', guardianWechat: ''
 };
 
 export default function StudentsPage() {
   const [data, setData] = useState<StudentListResponse>({ items: [], total: 0, page: 1, pageSize: 20, summary: { total: 0, active: 0, inactive: 0, graduated: 0 } });
   const [campuses, setCampuses] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState('');
@@ -65,6 +67,7 @@ export default function StudentsPage() {
 
   useEffect(() => {
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
+    api<any[]>('/api/roles/staff').then(setStaff).catch(() => {});
   }, []);
 
   function search(e: FormEvent) {
@@ -104,6 +107,7 @@ export default function StudentsPage() {
         body: JSON.stringify({
           ...student,
           campusId: Number(form.campusId),
+          advisorId: form.advisorId ? Number(form.advisorId) : null,
           guardianPhone: form.fatherPhone || form.motherPhone || form.guardianPhone,
           guardians
         })
@@ -155,6 +159,7 @@ export default function StudentsPage() {
             <label>生日<input type="date" value={form.birthday} onChange={(e) => setForm({ ...form, birthday: e.target.value })} /></label>
             <label>报名日期<input type="date" value={form.enrollmentDate} onChange={(e) => setForm({ ...form, enrollmentDate: e.target.value })} /></label>
             <label>来源<input value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></label>
+            <label>课程顾问<select value={form.advisorId} onChange={(e) => setForm({ ...form, advisorId: e.target.value })}><option value="">未指定</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.display_name}{item.department ? `（${item.department}）` : ''}</option>)}</select></label>
           </div>
           <div className="form-row">
             <label>就读学校<input value={form.schoolName} onChange={(e) => setForm({ ...form, schoolName: e.target.value })} /></label>
@@ -211,7 +216,7 @@ export default function StudentsPage() {
       <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th><input type="checkbox" checked={data.items.length > 0 && selected.length === data.items.length} onChange={(e) => toggleAll(e.target.checked)} /></th><th>学员姓名</th><th>学员状态</th><th>报读校区</th><th>报读班级</th><th>性别</th><th>生日</th><th>联系方式</th><th>来源</th><th>报名时间</th></tr></thead>
+            <thead><tr><th><input type="checkbox" checked={data.items.length > 0 && selected.length === data.items.length} onChange={(e) => toggleAll(e.target.checked)} /></th><th>学员姓名</th><th>学员状态</th><th>报读校区</th><th>报读班级</th><th>性别</th><th>生日</th><th>联系方式</th><th>来源</th><th>课程顾问</th><th>报名时间</th></tr></thead>
             <tbody>
               {data.items.map((student) => (
                 <tr key={student.id}>
@@ -224,10 +229,11 @@ export default function StudentsPage() {
                   <td>{student.birthday?.slice(0, 10) ?? '-'}</td>
                   <td>{student.guardian_phone ?? '-'}</td>
                   <td>{student.source ?? '-'}</td>
+                  <td>{student.advisor_name ?? '-'}</td>
                   <td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td>
                 </tr>
               ))}
-              {data.items.length === 0 && <tr><td colSpan={10}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>没有符合条件的学员</p></div></td></tr>}
+              {data.items.length === 0 && <tr><td colSpan={11}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>没有符合条件的学员</p></div></td></tr>}
             </tbody>
           </table>
         </div>

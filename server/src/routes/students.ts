@@ -42,12 +42,16 @@ export async function studentRoutes(app: FastifyInstance) {
   app.get('/', { preHandler: [authGuard] }, async (request) => {
     const user = request.user!;
     if (user.role === 'admin') {
-      const result = await app.pool.query('SELECT * FROM students ORDER BY id');
+      const result = await app.pool.query(
+        `SELECT s.*, advisor.display_name AS advisor_name FROM students s
+         LEFT JOIN users advisor ON advisor.id=s.advisor_id ORDER BY s.id`
+      );
       return result.rows;
     }
     if (user.role === 'teacher') {
       const result = await app.pool.query(
-        `SELECT DISTINCT s.* FROM students s
+        `SELECT DISTINCT s.*, (SELECT display_name FROM users advisor WHERE advisor.id=s.advisor_id) AS advisor_name
+         FROM students s
          JOIN class_students cs ON cs.student_id = s.id
          JOIN classes c ON c.id = cs.class_id
          WHERE c.teacher_id = $1 AND cs.left_at IS NULL
@@ -123,7 +127,7 @@ export async function studentRoutes(app: FastifyInstance) {
     )).rows[0];
     const listParams = [...params, pageSize, (page - 1) * pageSize];
     const items = (await app.pool.query(
-      `SELECT s.*, camp.name AS campus_name,
+      `SELECT s.*, camp.name AS campus_name, advisor.display_name AS advisor_name,
               COALESCE((
                 SELECT STRING_AGG(c.name, '、' ORDER BY c.id)
                 FROM class_students cs
@@ -132,6 +136,7 @@ export async function studentRoutes(app: FastifyInstance) {
               ), '') AS class_names
        FROM students s
        LEFT JOIN campuses camp ON camp.id = s.campus_id
+       LEFT JOIN users advisor ON advisor.id = s.advisor_id
        WHERE ${baseWhere}
        ORDER BY s.id DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -184,6 +189,7 @@ export async function studentRoutes(app: FastifyInstance) {
       schoolName?: string;
       grade?: string;
       address?: string;
+      advisorId?: number;
       guardians?: Array<{
         name: string;
         relation?: string;
@@ -200,8 +206,8 @@ export async function studentRoutes(app: FastifyInstance) {
     const result = await app.pool.query(
       `INSERT INTO students (
         campus_id, name, guardian_phone, gender, birthday, enrollment_date, discount, source, notes,
-        student_no, school_name, grade, address
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        student_no, school_name, grade, address, advisor_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *`,
       [
         body.campusId,
@@ -216,7 +222,8 @@ export async function studentRoutes(app: FastifyInstance) {
         body.studentNo?.trim() || null,
         body.schoolName?.trim() || null,
         body.grade?.trim() || null,
-        body.address?.trim() || null
+        body.address?.trim() || null,
+        body.advisorId ?? null
       ]
     );
     const student = result.rows[0];
@@ -278,6 +285,7 @@ export async function studentRoutes(app: FastifyInstance) {
       schoolName?: string;
       grade?: string;
       address?: string;
+      advisorId?: number;
     };
     if (body.status && !STUDENT_STATUSES.has(body.status)) return reply.code(400).send({ error: 'invalid status' });
     const result = await app.pool.query(
@@ -295,8 +303,9 @@ export async function studentRoutes(app: FastifyInstance) {
         student_no = COALESCE($11, student_no),
         school_name = COALESCE($12, school_name),
         grade = COALESCE($13, grade),
-        address = COALESCE($14, address)
-       WHERE id = $15
+        address = COALESCE($14, address),
+        advisor_id = COALESCE($15, advisor_id)
+       WHERE id = $16
        RETURNING *`,
       [
         body.name ?? null,
@@ -313,6 +322,7 @@ export async function studentRoutes(app: FastifyInstance) {
         body.schoolName?.trim() || null,
         body.grade?.trim() || null,
         body.address?.trim() || null,
+        body.advisorId ?? null,
         id
       ]
     );
@@ -366,9 +376,10 @@ export async function studentRoutes(app: FastifyInstance) {
 
 async function loadStudentDetail(app: FastifyInstance, studentId: number) {
   const student = (await app.pool.query(
-    `SELECT s.*, camp.name AS campus_name
+    `SELECT s.*, camp.name AS campus_name, advisor.display_name AS advisor_name
      FROM students s
      LEFT JOIN campuses camp ON camp.id = s.campus_id
+     LEFT JOIN users advisor ON advisor.id = s.advisor_id
      WHERE s.id = $1`,
     [studentId]
   )).rows[0];

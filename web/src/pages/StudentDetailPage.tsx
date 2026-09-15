@@ -75,8 +75,9 @@ export default function StudentDetailPage() {
               <tr><th>学员编号</th><td>{student.student_no ?? '-'}</td><th>学员姓名</th><td>{student.name}</td></tr>
               <tr><th>性别</th><td>{student.gender ?? '-'}</td><th>生日</th><td>{student.birthday?.slice(0, 10) ?? '-'}</td></tr>
               <tr><th>就读学校</th><td>{student.school_name ?? '-'}</td><th>年级</th><td>{student.grade ?? '-'}</td></tr>
-              <tr><th>报名日期</th><td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td><th>来源</th><td>{student.source ?? '-'}</td></tr>
-              <tr><th>报读校区</th><td>{student.campus_name ?? '-'}</td><th>折扣说明</th><td>{student.discount ?? '-'}</td></tr>
+              <tr><th>报名日期</th><td>{student.enrollment_date?.slice(0, 10) ?? '-'}</td><th>课程顾问</th><td>{student.advisor_name ?? '未指定'}</td></tr>
+              <tr><th>来源</th><td>{student.source ?? '-'}</td><th>报读校区</th><td>{student.campus_name ?? '-'}</td></tr>
+              <tr><th>折扣说明</th><td colSpan={3}>{student.discount ?? '-'}</td></tr>
               <tr><th>家庭住址</th><td colSpan={3}>{student.address ?? '-'}</td></tr>
               <tr><th>主要联系方式</th><td colSpan={3}>{student.guardian_phone ?? '-'}</td></tr>
             </tbody></table></div>
