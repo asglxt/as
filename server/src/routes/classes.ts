@@ -107,6 +107,40 @@ export async function classRoutes(app: FastifyInstance) {
     return result.rows[0];
   });
 
+  app.get('/:id', { preHandler: [authGuard, requireRole('admin', 'teacher')] }, async (request, reply) => {
+    const classId = Number((request.params as { id: string }).id);
+    const result = await app.pool.query(
+      `SELECT c.*, camp.name AS campus_name, l.name AS lesson_name,
+              teacher.display_name AS teacher_name, assistant.display_name AS assistant_name,
+              (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id=c.id AND cs.left_at IS NULL)::int AS student_count
+       FROM classes c
+       LEFT JOIN campuses camp ON camp.id=c.campus_id
+       LEFT JOIN lessons l ON l.id=c.lesson_id
+       LEFT JOIN users teacher ON teacher.id=c.teacher_id
+       LEFT JOIN users assistant ON assistant.id=c.assistant_id
+       WHERE c.id=$1`,
+      [classId]
+    );
+    const cls = result.rows[0];
+    if (!cls) return reply.code(404).send({ error: 'class not found' });
+    if (request.user!.role === 'teacher' && Number(cls.teacher_id) !== Number(request.user!.id)) {
+      return reply.code(403).send({ error: 'class forbidden' });
+    }
+    const students = (await app.pool.query(
+      `SELECT s.id, s.name, s.guardian_phone, s.status, s.gender, s.birthday::text AS birthday,
+              cs.status AS membership_status, cs.start_date::text AS start_date
+       FROM class_students cs
+       JOIN students s ON s.id=cs.student_id
+       WHERE cs.class_id=$1 AND cs.left_at IS NULL
+       ORDER BY s.name, s.id`,
+      [classId]
+    )).rows.map((row) => ({ ...row, id: Number(row.id) }));
+    return {
+      class: { ...cls, id: Number(cls.id), campus_id: Number(cls.campus_id), teacher_id: cls.teacher_id === null ? null : Number(cls.teacher_id), assistant_id: cls.assistant_id === null ? null : Number(cls.assistant_id), student_count: Number(cls.student_count) },
+      students
+    };
+  });
+
   app.get('/:id/students', { preHandler: [authGuard, requireRole('admin', 'teacher')] }, async (request) => {
     const classId = Number((request.params as { id: string }).id);
     return (await app.pool.query(

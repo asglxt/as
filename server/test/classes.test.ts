@@ -53,6 +53,31 @@ test('class supports lesson, teacher, assistant and capacity', async () => {
   assert.equal(Number(create.json().capacity), 20);
 });
 
+test('class detail returns teacher, course and student roster with access control', async () => {
+  const teacherId = (await app.pool.query("SELECT id FROM users WHERE username = 'teacher'")).rows[0].id;
+  const lesson = await app.pool.query("INSERT INTO lessons (name) VALUES ('班级详情课程') RETURNING id");
+  const created = await app.inject({
+    method: 'POST', url: '/api/classes', headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '详情测试班', subject: '英语', grade: '五年级', teacherId, lessonId: lesson.rows[0].id, schedule: '每周六 09:00-10:30' }
+  });
+  const student = await app.pool.query("INSERT INTO students (campus_id,name,guardian_phone) VALUES ($1,'详情学员','13800001111') RETURNING id", [seed.campusId]);
+  await app.pool.query('INSERT INTO class_students (class_id,student_id) VALUES ($1,$2)', [created.json().id, student.rows[0].id]);
+
+  const adminView = await app.inject({ method: 'GET', url: `/api/classes/${created.json().id}`, headers: { authorization: `Bearer ${seed.adminToken}` } });
+  assert.equal(adminView.statusCode, 200);
+  assert.equal(adminView.json().class.name, '详情测试班');
+  assert.equal(adminView.json().class.teacher_name, '教师');
+  assert.equal(adminView.json().class.lesson_name, '班级详情课程');
+  assert.equal(adminView.json().students.length, 1);
+  assert.equal(adminView.json().students[0].name, '详情学员');
+
+  const teacherView = await app.inject({ method: 'GET', url: `/api/classes/${created.json().id}`, headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(teacherView.statusCode, 200);
+  const otherClass = await app.pool.query("INSERT INTO classes (campus_id,name,subject,grade) VALUES ($1,'无权查看班','数学','五年级') RETURNING id", [seed.campusId]);
+  const forbidden = await app.inject({ method: 'GET', url: `/api/classes/${otherClass.rows[0].id}`, headers: { authorization: `Bearer ${seed.teacherToken}` } });
+  assert.equal(forbidden.statusCode, 403);
+});
+
 test('assignment records lesson and teacher', async () => {
   const lesson = await app.pool.query("INSERT INTO lessons (name) VALUES ('G1') RETURNING id");
   const teacherId = (await app.pool.query("SELECT id FROM users WHERE username = 'teacher'")).rows[0].id;

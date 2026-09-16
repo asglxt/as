@@ -6,6 +6,7 @@ import DashboardPage from './pages/DashboardPage.tsx';
 import StudentsPage from './pages/StudentsPage.tsx';
 import StudentDetailPage from './pages/StudentDetailPage.tsx';
 import ClassesPage from './pages/ClassesPage.tsx';
+import ClassDetailPage from './pages/ClassDetailPage.tsx';
 import ImportPage from './pages/ImportPage.tsx';
 import MyScoresPage from './pages/MyScoresPage.tsx';
 import RolesPage from './pages/RolesPage.tsx';
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/students" element={<RequireAuth><StudentsPage /></RequireAuth>} />
       <Route path="/students/:id" element={<RequireAuth><StudentDetailPage /></RequireAuth>} />
       <Route path="/classes" element={<RequireAuth><ClassesPage /></RequireAuth>} />
+      <Route path="/classes/:id" element={<RequireAuth><ClassDetailPage /></RequireAuth>} />
       <Route path="/scores" element={<RequireAuth><ScoresPage /></RequireAuth>} />
       <Route path="/comments" element={<RequireAuth><CommentsPage /></RequireAuth>} />
       <Route path="/my-comments" element={<RequireAuth><MyCommentsPage /></RequireAuth>} />

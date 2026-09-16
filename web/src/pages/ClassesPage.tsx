@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Plus, Search, UserMinus, Users } from 'lucide-react';
+import { Plus, Search, Users } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
@@ -18,8 +19,6 @@ export default function ClassesPage() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [rosterClass, setRosterClass] = useState<any>(null);
-  const [roster, setRoster] = useState<any[]>([]);
   const [message, setMessage] = useState('');
 
   const queryString = useMemo(() => {
@@ -50,18 +49,6 @@ export default function ClassesPage() {
       setShowCreate(false);
       await load();
     } catch (err: any) { setMessage(err.message); }
-  }
-
-  async function openRoster(cls: any) {
-    setRosterClass(cls);
-    setRoster(await api<any[]>(`/api/classes/${cls.id}/students`));
-  }
-
-  async function removeFromClass(studentId: number) {
-    if (!rosterClass) return;
-    await api(`/api/classes/${rosterClass.id}/students/${studentId}`, { method: 'DELETE' });
-    setRoster(await api<any[]>(`/api/classes/${rosterClass.id}/students`));
-    await load();
   }
 
   async function closeClass(cls: any) {
@@ -110,17 +97,11 @@ export default function ClassesPage() {
 
 
       <section className="panel" style={{ padding: 0, overflow: 'hidden' }}><div className="table-wrap"><table className="table"><thead><tr><th>班级名称</th><th>人数</th><th>班主任</th><th>所属课程</th><th>开班校区</th><th>开班日期</th><th>上课时间</th><th>招生状态</th><th>操作</th></tr></thead><tbody>
-        {data.items.map((cls: any) => <tr key={cls.id}><td><b>{cls.name}</b><div className="subtitle">{cls.grade} · {cls.subject}</div></td><td>{cls.student_count}/{cls.capacity ?? '-'}</td><td>{cls.teacher_name ?? '待定'}</td><td>{cls.lesson_name ?? '-'}</td><td>{cls.campus_name ?? '-'}</td><td>{cls.start_date?.slice(0, 10) ?? '-'}</td><td>{cls.schedule ?? '待定'}</td><td><span className={cls.recruit_status === 'recruiting' ? 'badge green' : 'badge orange'}>{RECRUIT_LABELS[cls.recruit_status] ?? cls.recruit_status}</span></td><td><div className="toolbar" style={{ margin: 0 }}><button className="btn" onClick={() => openRoster(cls)}>学员</button>{isAdmin && cls.recruit_status !== 'closed' && <button className="btn danger" onClick={() => closeClass(cls)}>结班</button>}</div></td></tr>)}
+        {data.items.map((cls: any) => <tr key={cls.id}><td><Link to={`/classes/${cls.id}`}><b>{cls.name}</b></Link><div className="subtitle">{cls.grade} · {cls.subject}</div></td><td>{cls.student_count}/{cls.capacity ?? '-'}</td><td>{cls.teacher_name ?? '待定'}</td><td>{cls.lesson_name ?? '-'}</td><td>{cls.campus_name ?? '-'}</td><td>{cls.start_date?.slice(0, 10) ?? '-'}</td><td>{cls.schedule ?? '待定'}</td><td><span className={cls.recruit_status === 'recruiting' ? 'badge green' : 'badge orange'}>{RECRUIT_LABELS[cls.recruit_status] ?? cls.recruit_status}</span></td><td><div className="toolbar" style={{ margin: 0 }}><Link className="btn" to={`/classes/${cls.id}`}>进入管理</Link>{isAdmin && cls.recruit_status !== 'closed' && <button className="btn danger" onClick={() => closeClass(cls)}>结班</button>}</div></td></tr>)}
         {data.items.length === 0 && <tr><td colSpan={9}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>暂无班级</p></div></td></tr>}
       </tbody></table></div></section>
       <div className="toolbar"><span className="subtitle">共 {data.total} 条，第 {data.page} 页</span><span className="spacer" /><button className="btn" disabled={data.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>上一页</button><button className="btn" disabled={data.page * data.pageSize >= data.total} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>下一页</button></div>
 
-      {rosterClass && (
-        <section className="panel">
-          <div className="panel-header"><h2>学员名单：{rosterClass.name}</h2><button className="btn" onClick={() => setRosterClass(null)}>关闭</button></div>
-          <div className="table-wrap"><table className="table"><thead><tr><th>学员姓名</th><th>状态</th><th>入班日期</th><th>操作</th></tr></thead><tbody>{roster.map((item) => <tr key={item.student_id}><td>{item.student_name}</td><td>{item.status}</td><td>{item.start_date?.slice(0, 10) ?? '-'}</td><td><button className="btn danger icon-text" onClick={() => removeFromClass(Number(item.student_id))}><UserMinus size={14} />移出</button></td></tr>)}</tbody></table></div>
-        </section>
-      )}
     </Shell>
   );
 }

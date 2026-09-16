@@ -84,7 +84,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const activeGroup = visibleGroups.find((group) => group.items.some((item) => location.pathname.startsWith(item.to)));
   const currentGroupKey = openGroup || activeGroup?.key || 'workbench';
-  const currentTitle = PAGE_TITLES[location.pathname] ?? (location.pathname.startsWith('/students/') ? '学员详情' : '学校管理');
+  const currentTitle = PAGE_TITLES[location.pathname] ?? (location.pathname.startsWith('/students/') ? '学员详情' : location.pathname.startsWith('/classes/') ? '班级管理' : '学校管理');
 
   useEffect(() => {
     api<{ count: number }>('/api/notifications/unread-count')
