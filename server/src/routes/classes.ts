@@ -170,6 +170,11 @@ export async function classRoutes(app: FastifyInstance) {
       [classId, studentId]
     );
     if (!result.rowCount) return reply.code(404).send({ error: 'active membership not found' });
+    await app.pool.query(
+      `INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, detail)
+       VALUES ($1, 'student.class.remove', 'student', $2, jsonb_build_object('classId', $3::bigint))`,
+      [request.user!.id, studentId, classId]
+    );
     return { ok: true };
   });
 }

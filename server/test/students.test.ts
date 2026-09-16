@@ -64,6 +64,29 @@ test('transfer moves student between classes', async () => {
   assert.ok(oldRow.rows[0].left_at);
 });
 
+test('student can join and leave classes from the student workspace', async () => {
+  const create = await app.inject({
+    method: 'POST', url: '/api/students', headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { campusId: seed.campusId, name: '分班操作学员' }
+  });
+  const studentId = create.json().id;
+  const join = await app.inject({
+    method: 'POST', url: `/api/students/${studentId}/classes`, headers: { authorization: `Bearer ${seed.adminToken}` },
+    payload: { classId }
+  });
+  assert.equal(join.statusCode, 200);
+  let detail = await app.inject({ method: 'GET', url: `/api/students/${studentId}`, headers: { authorization: `Bearer ${seed.adminToken}` } });
+  assert.equal(detail.json().classes.length, 1);
+  const leave = await app.inject({
+    method: 'DELETE', url: `/api/classes/${classId}/students/${studentId}`, headers: { authorization: `Bearer ${seed.adminToken}` }
+  });
+  assert.equal(leave.statusCode, 200);
+  detail = await app.inject({ method: 'GET', url: `/api/students/${studentId}`, headers: { authorization: `Bearer ${seed.adminToken}` } });
+  assert.equal(detail.json().classes.length, 0);
+  assert.ok(detail.json().auditLogs.some((item: any) => item.action === 'student.class.add'));
+  assert.ok(detail.json().auditLogs.some((item: any) => item.action === 'student.class.remove'));
+});
+
 test('student detail returns guardians and growth records', async () => {
   const create = await app.inject({
     method: 'POST',

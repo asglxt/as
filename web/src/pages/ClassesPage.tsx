@@ -18,11 +18,8 @@ export default function ClassesPage() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [assignClass, setAssignClass] = useState<any>(null);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
   const [rosterClass, setRosterClass] = useState<any>(null);
   const [roster, setRoster] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
   const [message, setMessage] = useState('');
 
   const queryString = useMemo(() => {
@@ -35,7 +32,6 @@ export default function ClassesPage() {
   useEffect(() => { load().catch((err) => setMessage(err.message)); }, [queryString]);
   useEffect(() => {
     api<any[]>('/api/campuses').then(setCampuses).catch(() => {});
-    api<any[]>('/api/students').then(setStudents).catch(() => {});
     if (isAdmin) {
       api<any[]>('/api/lessons').then(setLessons).catch(() => setLessons([]));
       api<any[]>('/api/roles/staff').then(setStaff).catch(() => setStaff([]));
@@ -54,18 +50,6 @@ export default function ClassesPage() {
       setShowCreate(false);
       await load();
     } catch (err: any) { setMessage(err.message); }
-  }
-
-  function openAssign(cls: any) { setAssignClass(cls); setSelectedStudentIds([]); }
-  function toggleStudent(id: number, checked: boolean) { setSelectedStudentIds(checked ? [...selectedStudentIds, id] : selectedStudentIds.filter((item) => item !== id)); }
-
-  async function assignStudents() {
-    if (!assignClass || !selectedStudentIds.length) return;
-    const result = await api<{ count: number }>(`/api/classes/${assignClass.id}/students/batch`, { method: 'POST', body: JSON.stringify({ studentIds: selectedStudentIds, lessonId: assignClass.lesson_id, teacherId: assignClass.teacher_id }) });
-    setMessage(`已分班 ${result.count} 名学员`);
-    setAssignClass(null);
-    setSelectedStudentIds([]);
-    await load();
   }
 
   async function openRoster(cls: any) {
@@ -89,7 +73,7 @@ export default function ClassesPage() {
 
   return (
     <Shell>
-      <div className="panel-header"><div><h1 className="page-title">班级</h1><p className="page-subtitle">管理开班、课程、班主任、分班和招生状态。</p></div>{isAdmin && <button className="btn primary icon-text" onClick={() => setShowCreate((value) => !value)}><Plus size={15} />新建班级</button>}</div>
+      <div className="panel-header"><div><h1 className="page-title">班级</h1><p className="page-subtitle">管理开班、课程、班主任、班级名单和招生状态；学员分班请从学员档案办理。</p></div>{isAdmin && <button className="btn primary icon-text" onClick={() => setShowCreate((value) => !value)}><Plus size={15} />新建班级</button>}</div>
       {message && <div className="summary-strip"><span>{message}</span></div>}
       <div className="cards"><div className="stat-card"><b>{data.summary.classes}</b><span>班级数量</span></div><div className="stat-card"><b>{data.summary.recruiting}</b><span>招生中班级</span></div><div className="stat-card"><b>{data.summary.students}</b><span>在读学员</span></div></div>
 
@@ -126,19 +110,10 @@ export default function ClassesPage() {
 
 
       <section className="panel" style={{ padding: 0, overflow: 'hidden' }}><div className="table-wrap"><table className="table"><thead><tr><th>班级名称</th><th>人数</th><th>班主任</th><th>所属课程</th><th>开班校区</th><th>开班日期</th><th>上课时间</th><th>招生状态</th><th>操作</th></tr></thead><tbody>
-        {data.items.map((cls: any) => <tr key={cls.id}><td><b>{cls.name}</b><div className="subtitle">{cls.grade} · {cls.subject}</div></td><td>{cls.student_count}/{cls.capacity ?? '-'}</td><td>{cls.teacher_name ?? '待定'}</td><td>{cls.lesson_name ?? '-'}</td><td>{cls.campus_name ?? '-'}</td><td>{cls.start_date?.slice(0, 10) ?? '-'}</td><td>{cls.schedule ?? '待定'}</td><td><span className={cls.recruit_status === 'recruiting' ? 'badge green' : 'badge orange'}>{RECRUIT_LABELS[cls.recruit_status] ?? cls.recruit_status}</span></td><td><div className="toolbar" style={{ margin: 0 }}>{isAdmin && <button className="btn icon-text" onClick={() => openAssign(cls)}><Users size={14} />分班</button>}<button className="btn" onClick={() => openRoster(cls)}>学员</button>{isAdmin && cls.recruit_status !== 'closed' && <button className="btn danger" onClick={() => closeClass(cls)}>结班</button>}</div></td></tr>)}
+        {data.items.map((cls: any) => <tr key={cls.id}><td><b>{cls.name}</b><div className="subtitle">{cls.grade} · {cls.subject}</div></td><td>{cls.student_count}/{cls.capacity ?? '-'}</td><td>{cls.teacher_name ?? '待定'}</td><td>{cls.lesson_name ?? '-'}</td><td>{cls.campus_name ?? '-'}</td><td>{cls.start_date?.slice(0, 10) ?? '-'}</td><td>{cls.schedule ?? '待定'}</td><td><span className={cls.recruit_status === 'recruiting' ? 'badge green' : 'badge orange'}>{RECRUIT_LABELS[cls.recruit_status] ?? cls.recruit_status}</span></td><td><div className="toolbar" style={{ margin: 0 }}><button className="btn" onClick={() => openRoster(cls)}>学员</button>{isAdmin && cls.recruit_status !== 'closed' && <button className="btn danger" onClick={() => closeClass(cls)}>结班</button>}</div></td></tr>)}
         {data.items.length === 0 && <tr><td colSpan={9}><div style={{ padding: 36, textAlign: 'center', color: '#8a96a8' }}><Users size={28} /><p>暂无班级</p></div></td></tr>}
       </tbody></table></div></section>
       <div className="toolbar"><span className="subtitle">共 {data.total} 条，第 {data.page} 页</span><span className="spacer" /><button className="btn" disabled={data.page <= 1} onClick={() => setFilters({ ...filters, page: filters.page - 1 })}>上一页</button><button className="btn" disabled={data.page * data.pageSize >= data.total} onClick={() => setFilters({ ...filters, page: filters.page + 1 })}>下一页</button></div>
-
-      {assignClass && (
-        <section className="panel">
-          <div className="panel-header"><h2>批量分班：{assignClass.name}</h2><button className="btn" onClick={() => setAssignClass(null)}>关闭</button></div>
-          <div className="summary-strip"><span>已选择 <b>{selectedStudentIds.length}</b> 名学员</span></div>
-          <div className="table-wrap"><table className="table"><thead><tr><th>选择</th><th>学员</th><th>联系电话</th><th>状态</th></tr></thead><tbody>{students.map((student) => <tr key={student.id}><td><input type="checkbox" checked={selectedStudentIds.includes(Number(student.id))} onChange={(e) => toggleStudent(Number(student.id), e.target.checked)} /></td><td>{student.name}</td><td>{student.guardian_phone ?? '-'}</td><td>{student.status}</td></tr>)}</tbody></table></div>
-          <button className="btn primary" onClick={assignStudents} disabled={!selectedStudentIds.length}>确认分班</button>
-        </section>
-      )}
 
       {rosterClass && (
         <section className="panel">
@@ -149,4 +124,3 @@ export default function ClassesPage() {
     </Shell>
   );
 }
-

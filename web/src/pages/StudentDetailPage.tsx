@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import Shell from '../Shell.tsx';
 import { api } from '../api.ts';
@@ -18,7 +18,7 @@ interface StudentDetail {
 }
 
 const TABS = [
-  ['overview', '基础信息'], ['classes', '报读课程'], ['attendance', '上课记录'], ['scores', '成绩'], ['analytics', '成绩分析'],
+  ['overview', '基础信息'], ['classes', '班级管理'], ['attendance', '上课记录'], ['scores', '成绩'], ['analytics', '成绩分析'],
   ['growth', '成长记录'], ['orders', '订单'], ['account', '学员账户'], ['logs', '操作日志']
 ] as const;
 
@@ -26,7 +26,7 @@ const STATUS_LABELS: Record<string, string> = { active: '在读', inactive: '停
 const ATTENDANCE_LABELS: Record<string, string> = { present: '出勤', absent: '缺勤', leave: '请假', makeup: '补课' };
 const AUDIT_LABELS: Record<string, string> = {
   'student.create': '创建学员', 'student.update': '修改资料', 'student.batch_update': '批量调整',
-  'student.class.add': '添加课程', 'student.transfer': '办理转班', 'student.growth.create': '新增成长记录'
+  'student.class.add': '加入班级', 'student.class.remove': '转出班级', 'student.transfer': '办理转班', 'student.growth.create': '新增成长记录'
 };
 const AUDIT_FIELD_LABELS: Record<string, string> = {
   name: '姓名', status: '状态', campusId: '校区', advisorId: '课程顾问', classId: '班级',
@@ -45,14 +45,16 @@ function editFormFromStudent(student: any) {
 
 export default function StudentDetailPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const [detail, setDetail] = useState<StudentDetail | null>(null);
-  const [tab, setTab] = useState<string>('overview');
+  const [tab, setTab] = useState<string>(() => searchParams.get('tab') === 'classes' ? 'classes' : 'overview');
   const [growth, setGrowth] = useState({ type: '课堂点评', content: '' });
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>(null);
   const [classes, setClasses] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [transfer, setTransfer] = useState({ fromClassId: '', toClassId: '' });
+  const [joinClassId, setJoinClassId] = useState('');
   const [message, setMessage] = useState('');
 
   async function load() {
@@ -104,6 +106,33 @@ export default function StudentDetailPage() {
       });
       setTransfer({ fromClassId: '', toClassId: '' });
       setMessage('转班已办理');
+      await load();
+    } catch (err: any) {
+      setMessage(err.message);
+    }
+  }
+
+  async function joinClass(e: FormEvent) {
+    e.preventDefault();
+    if (!joinClassId) return;
+    try {
+      await api(`/api/students/${id}/classes`, {
+        method: 'POST',
+        body: JSON.stringify({ classId: Number(joinClassId) })
+      });
+      setJoinClassId('');
+      setMessage('已加入班级');
+      await load();
+    } catch (err: any) {
+      setMessage(err.message);
+    }
+  }
+
+  async function leaveClass(classId: number, className: string) {
+    if (!window.confirm(`确认将学员从“${className}”转出？`)) return;
+    try {
+      await api(`/api/classes/${classId}/students/${id}`, { method: 'DELETE' });
+      setMessage('已办理转出');
       await load();
     } catch (err: any) {
       setMessage(err.message);
@@ -181,6 +210,13 @@ export default function StudentDetailPage() {
 
       {tab === 'classes' && (
         <div>
+          <form className="panel" onSubmit={joinClass}>
+            <div className="panel-header"><h2>加入班级</h2><span className="subtitle">为学员新增一个已报读班级。</span></div>
+            <div className="form-row">
+              <label>选择班级<select required value={joinClassId} onChange={(e) => setJoinClassId(e.target.value)}><option value="">选择要加入的班级</option>{classes.filter((item) => !detail.classes.some((current) => Number(current.id) === Number(item.id))).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.subject} · {item.teacher_name ?? '待定'}</option>)}</select></label>
+              <button className="btn primary" type="submit">加入班级</button>
+            </div>
+          </form>
           <form className="panel" onSubmit={transferClass}>
             <div className="panel-header"><h2>办理转班</h2><span className="subtitle">学员从原班级转入新班级后会保留历史记录。</span></div>
             <div className="form-row">
@@ -189,7 +225,7 @@ export default function StudentDetailPage() {
               <button className="btn primary" type="submit">确认转班</button>
             </div>
           </form>
-          <div className="panel"><div className="table-wrap"><table className="table"><thead><tr><th>班级</th><th>课程</th><th>教师</th><th>年级/科目</th><th>状态</th></tr></thead><tbody>{detail.classes.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.lesson_name ?? '-'}</td><td>{item.teacher_name ?? '待定'}</td><td>{[item.grade, item.subject].filter(Boolean).join(' / ') || '-'}</td><td>{item.status}</td></tr>)}</tbody></table></div></div>
+          <div className="panel"><div className="table-wrap"><table className="table"><thead><tr><th>当前班级</th><th>课程</th><th>教师</th><th>年级/科目</th><th>状态</th><th>操作</th></tr></thead><tbody>{detail.classes.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.lesson_name ?? '-'}</td><td>{item.teacher_name ?? '待定'}</td><td>{[item.grade, item.subject].filter(Boolean).join(' / ') || '-'}</td><td>{item.status}</td><td><div className="toolbar" style={{ margin: 0 }}><button className="btn" type="button" onClick={() => setTransfer({ fromClassId: String(item.id), toClassId: '' })}>换班</button><button className="btn danger" type="button" onClick={() => leaveClass(Number(item.id), item.name)}>转出</button></div></td></tr>)}{detail.classes.length === 0 && <tr><td colSpan={6}><p className="subtitle">暂未加入班级</p></td></tr>}</tbody></table></div></div>
         </div>
       )}
 

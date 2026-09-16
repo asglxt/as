@@ -293,7 +293,7 @@ export default function StudentsPage() {
                   <td><Link to={`/students/${student.id}`}>{student.name}</Link><div className="subtitle">ID {student.id}</div></td>
                   <td><span className={`badge ${STATUS_CLASSES[student.status] ?? ''}`}>{STATUS_LABELS[student.status] ?? student.status}</span></td>
                   <td>{student.campus_name ?? '-'}</td>
-                  <td>{student.class_names || '-'}</td>
+                  <td><Link to={`/students/${student.id}?tab=classes`}>{student.class_names || '去分班'}</Link></td>
                   {visibleColumns.studentNo && <td>{student.student_no ?? '-'}</td>}
                   {visibleColumns.gender && <td>{student.gender ?? '-'}</td>}
                   {visibleColumns.birthday && <td>{student.birthday?.slice(0, 10) ?? '-'}</td>}
